@@ -32,7 +32,6 @@ def carregar_dados(u_id):
             if 'status' not in temp_df.columns: temp_df['status'] = 'Pago'
             if 'justificativa' not in temp_df.columns: temp_df['justificativa'] = ''
             
-            # Retrocompatibilidade: ajusta cadastros antigos baseados no texto padrão se necessário
             temp_df['natureza'] = temp_df['natureza'].replace({
                 'Ativo': 'Ativo Circulante',
                 'Passivo': 'Passivo Circulante'
@@ -40,7 +39,7 @@ def carregar_dados(u_id):
         return temp_df
     except Exception: return pd.DataFrame()
 
-def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_pl, v_rec, v_desp, v_ebitda, v_finan, v_lucro):
+def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_pl, v_rec_total, v_desp_total, v_ebitda, v_finan_total, v_lucro):
     pdf = FPDF()
     pdf.add_page()
     
@@ -61,20 +60,46 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
     pdf.cell(64, 7, f"Variação Líquida: R$ {s_fin - s_ini:,.2f}", border=1, ln=True)
     pdf.ln(4)
 
-    # 2. DRE
+    # 2. DRE DETALHADA NO PDF
     pdf.set_font("Arial", "B", 11)
-    pdf.cell(190, 7, "2. DEMONSTRAÇÃO DO RESULTADO (DRE)", ln=True)
+    pdf.cell(190, 7, "2. DEMONSTRAÇÃO DO RESULTADO (DRE DETALHADA)", ln=True)
     pdf.set_font("Arial", "", 9)
-    pdf.cell(140, 7, "(+) Receitas Brutas", border=1)
-    pdf.cell(50, 7, f"R$ {v_rec:,.2f}", border=1, ln=True, align="R")
-    pdf.cell(140, 7, "(-) Despesas Operacionais", border=1)
-    pdf.cell(50, 7, f"R$ ({v_desp:,.2f})", border=1, ln=True, align="R")
+    
+    # Seção de Receitas Detalhadas
     pdf.set_font("Arial", "B", 9)
-    pdf.cell(140, 7, "(=) EBITDA", border=1)
-    pdf.cell(50, 7, f"R$ {v_ebitda:,.2f}", border=1, ln=True, align="R")
+    pdf.cell(140, 6, "(+) RECEITAS", border=1)
+    pdf.cell(50, 6, f"R$ {v_rec_total:,.2f}", border=1, ln=True, align="R")
     pdf.set_font("Arial", "", 9)
-    pdf.cell(140, 7, "(-) Encargos Financeiros / Impostos", border=1)
-    pdf.cell(50, 7, f"R$ ({v_finan:,.2f})", border=1, ln=True, align="R")
+    df_rec = df_per[df_per['natureza'] == 'Receita']
+    for conta, valor in agrupar_por_conta(df_rec):
+        pdf.cell(140, 5.5, f"   {conta}", border=1)
+        pdf.cell(50, 5.5, f"R$ {valor:,.2f}", border=1, ln=True, align="R")
+        
+    # Seção de Despesas Detalhadas
+    pdf.set_font("Arial", "B", 9)
+    pdf.cell(140, 6, "(-) DESPESAS OPERACIONAIS", border=1)
+    pdf.cell(50, 6, f"R$ ({v_desp_total:,.2f})", border=1, ln=True, align="R")
+    pdf.set_font("Arial", "", 9)
+    df_desp = df_per[df_per['natureza'] == 'Despesa']
+    for conta, valor in agrupar_por_conta(df_desp):
+        pdf.cell(140, 5.5, f"   {conta}", border=1)
+        pdf.cell(50, 5.5, f"R$ ({valor:,.2f})", border=1, ln=True, align="R")
+        
+    # EBITDA
+    pdf.set_font("Arial", "B", 9)
+    pdf.cell(140, 6, "(=) EBITDA", border=1)
+    pdf.cell(50, 6, f"R$ {v_ebitda:,.2f}", border=1, ln=True, align="R")
+    
+    # Seção de Encargos Financeiros Detalhados
+    pdf.cell(140, 6, "(-) ENCARGOS FINANCEIROS / IMPOSTOS", border=1)
+    pdf.cell(50, 6, f"R$ ({v_finan_total:,.2f})", border=1, ln=True, align="R")
+    pdf.set_font("Arial", "", 9)
+    df_fin = df_per[df_per['natureza'] == 'Encargos Financeiros']
+    for conta, valor in agrupar_por_conta(df_fin):
+        pdf.cell(140, 5.5, f"   {conta}", border=1)
+        pdf.cell(50, 5.5, f"R$ ({valor:,.2f})", border=1, ln=True, align="R")
+        
+    # Resultado Líquido
     pdf.set_font("Arial", "B", 9)
     label_resultado = "(=) LUCRO LÍQUIDO DO PERÍODO" if v_lucro >= 0 else "(=) PREJUÍZO LÍQUIDO DO PERÍODO"
     pdf.cell(140, 7, label_resultado, border=1)
@@ -93,7 +118,6 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
     pdf.cell(30, 7, "Valor (R$)", border=1, align="R")
     pdf.ln()
 
-    # Separação com base nos nomes corretos dos grupos
     df_at_circ = df_per[df_per['natureza'] == 'Ativo Circulante']
     df_at_nc = df_per[df_per['natureza'] == 'Ativo Não Circulante']
     df_pass_circ = df_per[df_per['natureza'] == 'Passivo Circulante']
@@ -103,20 +127,18 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
     linhas_ativo = []
     linhas_passivo_pl = []
 
-    # ==================== ESTRUTURAÇÃO DO ATIVO ====================
     # Ativo Circulante
     v_at_circ = total_grupo_com_sinal(df_at_circ, 'Ativo Circulante')
     linhas_ativo.append(("ATIVO CIRCULANTE", v_at_circ, True))
     for c, v in agrupar_por_conta(df_at_circ):
         linhas_ativo.append((f"  {c}", v, False))
         
-    # Ativo Não Circulante - Rótulo corrigido aqui
+    # Ativo Não Circulante
     v_at_nc = total_grupo_com_sinal(df_at_nc, 'Ativo Não Circulante')
     linhas_ativo.append(("ATIVO NÃO CIRCULANTE", v_at_nc, True))
     for c, v in agrupar_por_conta(df_at_nc):
         linhas_ativo.append((f"  {c}", v, False))
 
-    # ==================== ESTRUTURAÇÃO DO PASSIVO E PL ====================
     # Passivo Circulante
     v_pass_circ = total_grupo_com_sinal(df_pass_circ, 'Passivo Circulante')
     linhas_passivo_pl.append(("PASSIVO CIRCULANTE", v_pass_circ, True))
@@ -138,12 +160,10 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
     label_lucro_ex = "  Lucros do Exercício" if v_lucro >= 0 else "  Prejuízos Acumulados"
     linhas_passivo_pl.append((label_lucro_ex, v_lucro, False))
 
-    # ==================== IMPRESSÃO EM DUAS COLUNAS ====================
     max_linhas = max(len(linhas_ativo), len(linhas_passivo_pl))
     
     pdf.set_font("Arial", "", 8)
     for index in range(max_linhas):
-        # Coluna do Ativo
         if index < len(linhas_ativo):
             desc_at, val_at, is_bold_at = linhas_ativo[index]
             pdf.set_font("Arial", "B" if is_bold_at else "", 8)
@@ -153,7 +173,6 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
             pdf.cell(65, 5.5, "", border=1)
             pdf.cell(30, 5.5, "", border=1)
 
-        # Coluna do Passivo / PL
         if index < len(linhas_passivo_pl):
             desc_pas, val_pas, is_bold_pas = linhas_passivo_pl[index]
             pdf.set_font("Arial", "B" if is_bold_pas else "", 8)
@@ -311,7 +330,8 @@ st.markdown("""<style>
     .valor-deb { color: #059669; font-size: 0.8rem; padding: 2px 10px; font-weight: 600; }
     .valor-cre { color: #dc2626; font-size: 0.8rem; text-align: right; padding: 2px 10px; font-weight: 600; }
     .just-box { font-size: 0.65rem; color: #64748b; font-style: italic; padding: 0 10px 5px 10px; line-height: 1.1; }
-    .dre-row { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid #f1f5f9; }
+    .dre-row { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid #f1f5f9; font-size: 0.95rem; }
+    .dre-subrow { display: flex; justify-content: space-between; padding: 3px 0 3px 20px; border-bottom: 1px solid #f8fafc; font-size: 0.85rem; color: #475569; font-style: italic; }
     .dre-total { font-weight: bold; border-top: 2px solid #1e293b; margin-top: 10px; padding-top: 5px; font-size: 1.1rem; }
 </style>""", unsafe_allow_html=True)
 
@@ -352,7 +372,6 @@ v_desp_op = df_periodo[(df_periodo['natureza'] == 'Despesa') & (df_periodo['tipo
 v_finan = df_periodo[(df_periodo['natureza'] == 'Encargos Financeiros') & (df_periodo['tipo'] == 'Débito')]['valor'].sum()
 v_lucro = v_rec - v_desp_op - v_finan
 
-# Consolidação Macro de Ativo e Passivo para o PDF
 v_at_total = get_saldo_total_por_natureza(df_periodo, 'Ativo Circulante') + get_saldo_total_por_natureza(df_periodo, 'Ativo Não Circulante')
 v_pas_total = get_saldo_total_por_natureza(df_periodo, 'Passivo Circulante') + get_saldo_total_por_natureza(df_periodo, 'Passivo Não Circulante')
 v_pl_per = get_saldo_total_por_natureza(df_periodo, 'Patrimônio Líquido')
@@ -410,12 +429,31 @@ else:
     elif st.session_state.menu_opcao == "📈 DRE":
         col_d, _ = st.columns([2, 1])
         with col_d:
-            st.markdown(f'<div class="dre-row"><span>(+) Receitas</span><span>R$ {v_rec:,.2f}</span></div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="dre-row"><span>(-) Despesas Operacionais</span><span>(R$ {v_desp_op:,.2f})</span></div>', unsafe_allow_html=True)
+            # 1. Grupo Mãe: Receitas
+            st.markdown(f'<div class="dre-row" style="font-weight: bold;"><span>(+) RECEITAS</span><span>R$ {v_rec:,.2f}</span></div>', unsafe_allow_html=True)
+            df_rec = df_periodo[df_periodo['natureza'] == 'Receita']
+            for conta, valor in agrupar_por_conta(df_rec):
+                st.markdown(f'<div class="dre-subrow"><span>{conta}</span><span>R$ {valor:,.2f}</span></div>', unsafe_allow_html=True)
+                
+            # 2. Grupo Mãe: Despesas
+            st.markdown(f'<div class="dre-row" style="font-weight: bold; margin-top: 10px;"><span>(-) DESPESAS OPERACIONAIS</span><span>(R$ {v_desp_op:,.2f})</span></div>', unsafe_allow_html=True)
+            df_desp = df_periodo[df_periodo['natureza'] == 'Despesa']
+            for conta, valor in agrupar_por_conta(df_desp):
+                st.markdown(f'<div class="dre-subrow"><span>{conta}</span><span>(R$ {valor:,.2f})</span></div>', unsafe_allow_html=True)
+                
+            # Subtotal EBITDA
             st.markdown(f'<div class="dre-total">(=) EBITDA: R$ {v_rec - v_desp_op:,.2f}</div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="dre-row"><span>(-) Encargos Financeiros</span><span>(R$ {v_finan:,.2f})</span></div>', unsafe_allow_html=True)
+            
+            # 3. Grupo Mãe: Encargos Financeiros
+            st.markdown(f'<div class="dre-row" style="font-weight: bold; margin-top: 10px;"><span>(-) ENCARGOS FINANCEIROS / IMPOSTOS</span><span>(R$ {v_finan:,.2f})</span></div>', unsafe_allow_html=True)
+            df_fin = df_periodo[df_periodo['natureza'] == 'Encargos Financeiros']
+            for conta, valor in agrupar_por_conta(df_fin):
+                st.markdown(f'<div class="dre-subrow"><span>{conta}</span><span>(R$ {valor:,.2f})</span></div>', unsafe_allow_html=True)
+                
+            # Lucro/Prejuízo Líquido
             cor = "#059669" if v_lucro >= 0 else "#dc2626"
-            st.markdown(f'<div class="dre-total" style="color:{cor}">(=) LUCRO LÍQUIDO: R$ {v_lucro:,.2f}</div>', unsafe_allow_html=True)
+            label_final = "(=) LUCRO LÍQUIDO" if v_lucro >= 0 else "(=) PREJUÍZO LÍQUIDO"
+            st.markdown(f'<div class="dre-total" style="color:{cor}; border-top: 2px double #1e293b;">{label_final}: R$ {v_lucro:,.2f}</div>', unsafe_allow_html=True)
 
     elif st.session_state.menu_opcao == "💸 Fluxo de Caixa":
         m1, m2, m3, m4 = st.columns(4)
