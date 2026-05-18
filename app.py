@@ -41,7 +41,7 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
     pdf.cell(190, 10, "RELATÓRIO CONTÁBIL CONSOLIDADO", ln=True, align="C")
     pdf.set_font("Arial", "", 10)
     pdf.cell(190, 7, f"Usuário: {user_email}", ln=True, align="C")
-    pdf.cell(190, 7, f"Período: {data_i} até {data_f} | Gerado em: {datetime.now().strftime('%d/%m/%Y %H:%M')}", ln=True, align="C")
+    pdf.cell(190, 7, f"Período: {data_i.strftime('%d/%m/%Y')} até {data_f.strftime('%d/%m/%Y')} | Gerado em: {datetime.now().strftime('%d/%m/%Y %H:%M')}", ln=True, align="C")
     pdf.ln(10)
 
     # 1. FLUXO DE CAIXA
@@ -68,20 +68,64 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
     pdf.cell(140, 8, "(-) Encargos Financeiros / Impostos", border=1)
     pdf.cell(50, 8, f"R$ ({v_finan:,.2f})", border=1, ln=True, align="R")
     pdf.set_font("Arial", "B", 10)
-    pdf.cell(140, 8, "(=) LUCRO LÍQUIDO DO PERÍODO", border=1)
+    
+    label_resultado = "(=) LUCRO LÍQUIDO DO PERÍODO" if v_lucro >= 0 else "(=) PREJUÍZO LÍQUIDO DO PERÍODO"
+    pdf.cell(140, 8, label_resultado, border=1)
     pdf.cell(50, 8, f"R$ {v_lucro:,.2f}", border=1, ln=True, align="R")
     pdf.ln(5)
 
-    # 3. BALANÇO
+    # 3. BALANÇO PATRIMONIAL DETALHADO
     pdf.set_font("Arial", "B", 12)
     pdf.cell(190, 10, "3. BALANÇO PATRIMONIAL", ln=True)
     pdf.set_font("Arial", "", 10)
     pl_final = v_pl + v_lucro
+    
     pdf.cell(95, 8, f"ATIVOS TOTAIS (A): R$ {v_at:,.2f}", border=1)
     pdf.cell(95, 8, f"PASSIVOS TOTAIS (P): R$ {v_pas:,.2f}", border=1, ln=True)
-    pdf.cell(190, 8, f"PATRIMÔNIO LÍQUIDO: R$ {pl_final:,.2f}", border=1, ln=True, align="C")
+    
+    # Detalhamento do PL (Capital Inicial + Resultado do Período)
+    label_detalhe_lucro = f"Lucro do Período: R$ {v_lucro:,.2f}" if v_lucro >= 0 else f"Prejuízo do Período: R$ {v_lucro:,.2f}"
+    pdf.cell(190, 8, f"PATRIMÔNIO LÍQUIDO (PL): R$ {pl_final:,.2f}  [PL Inicial: R$ {v_pl:,.2f} | {label_detalhe_lucro}]", border=1, ln=True, align="C")
+    
     pdf.set_font("Arial", "B", 10)
-    pdf.cell(190, 8, f"EQUAÇÃO: Ativo ({v_at:,.2f}) = Passivo + PL ({v_pas + pl_final:,.2f})", border=1, ln=True, align="C", fill=True)
+    pdf.cell(190, 8, f"EQUAÇÃO: Ativo ({v_at:,.2f}) = Passivo + PL ({v_pas + pl_final:,.2f})", border=1, ln=True, align="C")
+    pdf.ln(5)
+
+    # 4. LANÇAMENTOS DO PERÍODO
+    pdf.set_font("Arial", "B", 12)
+    pdf.cell(190, 10, "4. LANÇAMENTOS DO PERÍODO", ln=True)
+    pdf.set_font("Arial", "B", 9)
+    
+    # Cabeçalho da tabela de lançamentos
+    pdf.cell(20, 7, "Data", border=1, align="C")
+    pdf.cell(50, 7, "Conta", border=1)
+    pdf.cell(30, 7, "Grupo", border=1)
+    pdf.cell(20, 7, "Operação", border=1, align="C")
+    pdf.cell(25, 7, "Valor", border=1, align="R")
+    pdf.cell(45, 7, "Status/Justificativa", border=1)
+    pdf.ln()
+    
+    pdf.set_font("Arial", "", 8)
+    if not df_per.empty:
+        # Ordena os lançamentos por data para melhor leitura no relatório
+        df_ordenado = df_per.sort_values('data_lancamento')
+        for _, r in df_ordenado.iterrows():
+            data_formatada = r['data_lancamento'].strftime('%d/%m/%Y') if isinstance(r['data_lancamento'], datetime) or hasattr(r['data_lancamento'], 'strftime') else str(r['data_lancamento'])
+            
+            # Tratamento de textos longos para não quebrar o layout da tabela
+            desc = r['descricao'][:25]
+            grupo_nome = r['natureza'][:15]
+            just = r['justificativa'][:25] if r['justificativa'] else r['status']
+            
+            pdf.cell(20, 6, data_formatada, border=1, align="C")
+            pdf.cell(50, 6, desc, border=1)
+            pdf.cell(30, 6, grupo_nome, border=1)
+            pdf.cell(20, 6, r['tipo'], border=1, align="C")
+            pdf.cell(25, 6, f"R$ {r['valor']:,.2f}", border=1, align="R")
+            pdf.cell(45, 6, just, border=1)
+            pdf.ln()
+    else:
+        pdf.cell(190, 6, "Nenhum lançamento encontrado no período selecionado.", border=1, align="C", ln=True)
 
     return pdf.output()
 
