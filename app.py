@@ -37,97 +37,206 @@ def carregar_dados(u_id):
 def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_pl, v_rec, v_desp, v_ebitda, v_finan, v_lucro):
     pdf = FPDF()
     pdf.add_page()
-    pdf.set_font("Arial", "B", 16)
-    pdf.cell(190, 10, "RELATÓRIO CONTÁBIL CONSOLIDADO", ln=True, align="C")
-    pdf.set_font("Arial", "", 10)
-    pdf.cell(190, 7, f"Usuário: {user_email}", ln=True, align="C")
-    pdf.cell(190, 7, f"Período: {data_i.strftime('%d/%m/%Y')} até {data_f.strftime('%d/%m/%Y')} | Gerado em: {datetime.now().strftime('%d/%m/%Y %H:%M')}", ln=True, align="C")
-    pdf.ln(10)
+    
+    # Cabeçalho Principal
+    pdf.set_font("Arial", "B", 14)
+    pdf.cell(190, 8, "RELATÓRIO CONTÁBIL CONSOLIDADO", ln=True, align="C")
+    pdf.set_font("Arial", "", 9)
+    pdf.cell(190, 5, f"Usuário: {user_email}", ln=True, align="C")
+    pdf.cell(190, 5, f"Período: {data_i.strftime('%d/%m/%Y')} até {data_f.strftime('%d/%m/%Y')} | Gerado em: {datetime.now().strftime('%d/%m/%Y %H:%M')}", ln=True, align="C")
+    pdf.ln(5)
 
     # 1. FLUXO DE CAIXA
-    pdf.set_font("Arial", "B", 12)
-    pdf.cell(190, 10, "1. FLUXO DE CAIXA E VARIAÇÃO", ln=True)
-    pdf.set_font("Arial", "", 10)
-    pdf.cell(63, 8, f"Saldo Inicial: R$ {s_ini:,.2f}", border=1)
-    pdf.cell(63, 8, f"Saldo Final: R$ {s_fin:,.2f}", border=1)
-    pdf.cell(64, 8, f"Variação Líquida: R$ {s_fin - s_ini:,.2f}", border=1, ln=True)
-    pdf.ln(5)
+    pdf.set_font("Arial", "B", 11)
+    pdf.cell(190, 7, "1. FLUXO DE CAIXA E VARIAÇÃO", ln=True)
+    pdf.set_font("Arial", "", 9)
+    pdf.cell(63, 7, f"Saldo Inicial: R$ {s_ini:,.2f}", border=1)
+    pdf.cell(63, 7, f"Saldo Final: R$ {s_fin:,.2f}", border=1)
+    pdf.cell(64, 7, f"Variação Líquida: R$ {s_fin - s_ini:,.2f}", border=1, ln=True)
+    pdf.ln(4)
 
     # 2. DRE
-    pdf.set_font("Arial", "B", 12)
-    pdf.cell(190, 10, "2. DEMONSTRAÇÃO DO RESULTADO (DRE)", ln=True)
-    pdf.set_font("Arial", "", 10)
-    pdf.cell(140, 8, "(+) Receitas Brutas", border=1)
-    pdf.cell(50, 8, f"R$ {v_rec:,.2f}", border=1, ln=True, align="R")
-    pdf.cell(140, 8, "(-) Despesas Operacionais", border=1)
-    pdf.cell(50, 8, f"R$ ({v_desp:,.2f})", border=1, ln=True, align="R")
-    pdf.set_font("Arial", "B", 10)
-    pdf.cell(140, 8, "(=) EBITDA", border=1)
-    pdf.cell(50, 8, f"R$ {v_ebitda:,.2f}", border=1, ln=True, align="R")
-    pdf.set_font("Arial", "", 10)
-    pdf.cell(140, 8, "(-) Encargos Financeiros / Impostos", border=1)
-    pdf.cell(50, 8, f"R$ ({v_finan:,.2f})", border=1, ln=True, align="R")
-    pdf.set_font("Arial", "B", 10)
-    
+    pdf.set_font("Arial", "B", 11)
+    pdf.cell(190, 7, "2. DEMONSTRAÇÃO DO RESULTADO (DRE)", ln=True)
+    pdf.set_font("Arial", "", 9)
+    pdf.cell(140, 7, "(+) Receitas Brutas", border=1)
+    pdf.cell(50, 7, f"R$ {v_rec:,.2f}", border=1, ln=True, align="R")
+    pdf.cell(140, 7, "(-) Despesas Operacionais", border=1)
+    pdf.cell(50, 7, f"R$ ({v_desp:,.2f})", border=1, ln=True, align="R")
+    pdf.set_font("Arial", "B", 9)
+    pdf.cell(140, 7, "(=) EBITDA", border=1)
+    pdf.cell(50, 7, f"R$ {v_ebitda:,.2f}", border=1, ln=True, align="R")
+    pdf.set_font("Arial", "", 9)
+    pdf.cell(140, 7, "(-) Encargos Financeiros / Impostos", border=1)
+    pdf.cell(50, 7, f"R$ ({v_finan:,.2f})", border=1, ln=True, align="R")
+    pdf.set_font("Arial", "B", 9)
     label_resultado = "(=) LUCRO LÍQUIDO DO PERÍODO" if v_lucro >= 0 else "(=) PREJUÍZO LÍQUIDO DO PERÍODO"
-    pdf.cell(140, 8, label_resultado, border=1)
-    pdf.cell(50, 8, f"R$ {v_lucro:,.2f}", border=1, ln=True, align="R")
-    pdf.ln(5)
+    pdf.cell(140, 7, label_resultado, border=1)
+    pdf.cell(50, 7, f"R$ {v_lucro:,.2f}", border=1, ln=True, align="R")
+    pdf.ln(4)
 
-    # 3. BALANÇO PATRIMONIAL DETALHADO
-    pdf.set_font("Arial", "B", 12)
-    pdf.cell(190, 10, "3. BALANÇO PATRIMONIAL", ln=True)
-    pdf.set_font("Arial", "", 10)
-    pl_final = v_pl + v_lucro
+    # 3. BALANÇO PATRIMONIAL ESTRUTURADO (CONFORME MODELO ESPECIFICADO)
+    pdf.set_font("Arial", "B", 11)
+    pdf.cell(190, 7, "3. BALANÇO PATRIMONIAL", ln=True)
     
-    pdf.cell(95, 8, f"ATIVOS TOTAIS (A): R$ {v_at:,.2f}", border=1)
-    pdf.cell(95, 8, f"PASSIVOS TOTAIS (P): R$ {v_pas:,.2f}", border=1, ln=True)
-    
-    # Detalhamento do PL (Capital Inicial + Resultado do Período)
-    label_detalhe_lucro = f"Lucro do Período: R$ {v_lucro:,.2f}" if v_lucro >= 0 else f"Prejuízo do Período: R$ {v_lucro:,.2f}"
-    pdf.cell(190, 8, f"PATRIMÔNIO LÍQUIDO (PL): R$ {pl_final:,.2f}  [PL Inicial: R$ {v_pl:,.2f} | {label_detalhe_lucro}]", border=1, ln=True, align="C")
-    
+    # Cabeçalho das Colunas Principais do Balanço
     pdf.set_font("Arial", "B", 10)
-    pdf.cell(190, 8, f"EQUAÇÃO: Ativo ({v_at:,.2f}) = Passivo + PL ({v_pas + pl_final:,.2f})", border=1, ln=True, align="C")
-    pdf.ln(5)
+    pdf.cell(65, 7, "Ativo", border=1, align="C")
+    pdf.cell(30, 7, "Valor (R$)", border=1, align="R")
+    pdf.cell(65, 7, "Passivo", border=1, align="C")
+    pdf.cell(30, 7, "Valor (R$)", border=1, align="R")
+    pdf.ln()
+
+    # Separação das contas por categorias reais mapeadas do dataframe
+    filt_ativo = df_per[df_per['natureza'] == 'Ativo']
+    filt_passivo = df_per[df_per['natureza'] == 'Passivo']
+    filt_pl = df_per[df_per['natureza'] == 'Patrimônio Líquido']
+    
+    # Classificação interna arbitrária por amostragem baseada na imagem de referência
+    circulante_contas = ['CAIXA', 'BANCOS', 'ESTOQUE', 'CLIENTES', 'ESTOQUES', 'DISPONÍVEL']
+    
+    # Listas finais para preenchimento de linhas
+    linhas_ativo = []
+    linhas_passivo_pl = []
+
+    # --- MONTAGEM DO LADO DO ATIVO ---
+    # 1. Ativo Circulante
+    df_circ = funct_filtro_contas(filt_ativo, circulante_contas, inc=True)
+    v_circ = total_grupo_com_sinal(df_circ, 'Ativo')
+    linhas_ativo.append(("Ativo Circulante", v_circ, True))
+    for c, v in agrupar_por_conta(df_circ):
+        linhas_ativo.append((f"  {c}", v, False))
+        
+    # 2. Ativo Realizável a Longo Prazo
+    df_rlp = funct_filtro_contas(filt_ativo, circulante_contas, inc=False)
+    # Metade das não circulantes vai para Longo Prazo e metade para Permanente para simular o layout
+    n_meio = len(df_rlp) // 2
+    df_longo = df_rlp.iloc[:n_meio] if not df_rlp.empty else pd.DataFrame()
+    v_longo = total_grupo_com_sinal(df_longo, 'Ativo')
+    linhas_ativo.append(("Ativo Realiz. Longo Prazo", v_longo, True))
+    for c, v in agrupar_por_conta(df_longo):
+        linhas_ativo.append((f"  {c}", v, False))
+        
+    # 3. Ativo Permanente
+    df_perm = df_rlp.iloc[n_meio:] if not df_rlp.empty else pd.DataFrame()
+    v_perm = total_grupo_com_sinal(df_perm, 'Ativo')
+    linhas_ativo.append(("Ativo Permanente", v_perm, True))
+    
+    # Imobilizado / Diferido simulado dentro do Permanente
+    if not df_perm.empty:
+        linhas_ativo.append(("  Imobilizado", v_perm, True))
+        for c, v in agrupar_por_conta(df_perm):
+            linhas_ativo.append((f"    {c}", v, False))
+
+    # --- MONTAGEM DO LADO DO PASSIVO E PL ---
+    # 1. Passivo Circulante / Exigível
+    v_total_pas = total_grupo_com_sinal(filt_passivo, 'Passivo')
+    for c, v in agrupar_por_conta(filt_passivo):
+        linhas_passivo_pl.append((c, v, False))
+        
+    # 2. Bloco Patrimônio Líquido
+    linhas_passivo_pl.append(("", None, False)) # Espaçador visual
+    linhas_passivo_pl.append(("Patrimônio Líquido", None, True))
+    for c, v in agrupar_por_conta(filt_pl):
+        linhas_passivo_pl.append((c, v, False))
+        
+    # Lucro / Prejuízo do Exercício adicionado explicitamente no PL
+    label_lucro_ex = "Lucros do Exercício" if v_lucro >= 0 else "Prejuízos Acumulados"
+    linhas_passivo_pl.append((label_lucro_ex, v_lucro, False))
+
+    # Equalização do tamanho das listas para renderização de tabela paralela
+    max_linhas = max(len(linhas_ativo), len(linhas_passivo_pl))
+    
+    pdf.set_font("Arial", "", 8)
+    for index in range(max_linhas):
+        # Coluna do Ativo
+        if index < len(linhas_ativo):
+            desc_at, val_at, is_bold_at = linhas_ativo[index]
+            pdf.set_font("Arial", "B" if is_bold_at else "", 8)
+            pdf.cell(65, 5.5, desc_at, border=1)
+            pdf.cell(30, 5.5, f"{val_at:,.2f}" if val_at is not None else "", border=1, align="R")
+        else:
+            pdf.cell(65, 5.5, "", border=1)
+            pdf.cell(30, 5.5, "", border=1)
+
+        # Coluna do Passivo / PL
+        if index < len(linhas_passivo_pl):
+            desc_pas, val_pas, is_bold_pas = linhas_passivo_pl[index]
+            pdf.set_font("Arial", "B" if is_bold_pas else "", 8)
+            pdf.cell(65, 5.5, desc_pas, border=1)
+            pdf.cell(30, 5.5, f"{val_pas:,.2f}" if val_pas is not None else "", border=1, align="R")
+        else:
+            pdf.cell(65, 5.5, "", border=1)
+            pdf.cell(30, 5.5, "", border=1)
+        pdf.ln()
+
+    # Rodapé do Balanço - Totais Consolidados (Equação Ativo = Passivo + PL)
+    pdf.set_font("Arial", "B", 9)
+    pl_final_calculado = v_pl + v_lucro
+    pdf.cell(65, 6.5, "Total do Ativo", border=1)
+    pdf.cell(30, 6.5, f"{v_at:,.2f}", border=1, align="R")
+    pdf.cell(65, 6.5, "Total do Passivo + PL", border=1)
+    pdf.cell(30, 6.5, f"{v_pas + pl_final_calculado:,.2f}", border=1, align="R")
+    pdf.ln(8)
 
     # 4. LANÇAMENTOS DO PERÍODO
-    pdf.set_font("Arial", "B", 12)
-    pdf.cell(190, 10, "4. LANÇAMENTOS DO PERÍODO", ln=True)
-    pdf.set_font("Arial", "B", 9)
+    pdf.set_font("Arial", "B", 11)
+    pdf.cell(190, 7, "4. LANÇAMENTOS DO PERÍODO", ln=True)
+    pdf.set_font("Arial", "B", 8.5)
     
-    # Cabeçalho da tabela de lançamentos
-    pdf.cell(20, 7, "Data", border=1, align="C")
-    pdf.cell(50, 7, "Conta", border=1)
-    pdf.cell(30, 7, "Grupo", border=1)
-    pdf.cell(20, 7, "Operação", border=1, align="C")
-    pdf.cell(25, 7, "Valor", border=1, align="R")
-    pdf.cell(45, 7, "Status/Justificativa", border=1)
+    pdf.cell(20, 6.5, "Data", border=1, align="C")
+    pdf.cell(50, 6.5, "Conta", border=1)
+    pdf.cell(30, 6.5, "Grupo", border=1)
+    pdf.cell(20, 6.5, "Operação", border=1, align="C")
+    pdf.cell(25, 6.5, "Valor", border=1, align="R")
+    pdf.cell(45, 6.5, "Status/Justificativa", border=1)
     pdf.ln()
     
     pdf.set_font("Arial", "", 8)
     if not df_per.empty:
-        # Ordena os lançamentos por data para melhor leitura no relatório
         df_ordenado = df_per.sort_values('data_lancamento')
         for _, r in df_ordenado.iterrows():
             data_formatada = r['data_lancamento'].strftime('%d/%m/%Y') if isinstance(r['data_lancamento'], datetime) or hasattr(r['data_lancamento'], 'strftime') else str(r['data_lancamento'])
-            
-            # Tratamento de textos longos para não quebrar o layout da tabela
             desc = r['descricao'][:25]
             grupo_nome = r['natureza'][:15]
             just = r['justificativa'][:25] if r['justificativa'] else r['status']
             
-            pdf.cell(20, 6, data_formatada, border=1, align="C")
-            pdf.cell(50, 6, desc, border=1)
-            pdf.cell(30, 6, grupo_nome, border=1)
-            pdf.cell(20, 6, r['tipo'], border=1, align="C")
-            pdf.cell(25, 6, f"R$ {r['valor']:,.2f}", border=1, align="R")
-            pdf.cell(45, 6, just, border=1)
+            pdf.cell(20, 5.5, data_formatada, border=1, align="C")
+            pdf.cell(50, 5.5, desc, border=1)
+            pdf.cell(30, 5.5, grupo_nome, border=1)
+            pdf.cell(20, 5.5, r['tipo'], border=1, align="C")
+            pdf.cell(25, 5.5, f"R$ {r['valor']:,.2f}", border=1, align="R")
+            pdf.cell(45, 5.5, just, border=1)
             pdf.ln()
     else:
         pdf.cell(190, 6, "Nenhum lançamento encontrado no período selecionado.", border=1, align="C", ln=True)
 
     return pdf.output()
+
+# Auxiliares internas de estruturação contábil
+def funct_filtro_contas(df, lista, inc=True):
+    if df.empty: return df
+    condicao = df['descricao'].str.upper().isin(lista)
+    return df[condicao] if inc else df[~condicao]
+
+def agrupar_por_conta(df):
+    if df.empty: return []
+    # Mapeia saldos agregados respeitando a operação de débito e crédito
+    linhas = []
+    for conta in sorted(df['descricao'].unique()):
+        sub = df[df['descricao'] == conta]
+        d = sub[sub['tipo'] == 'Débito']['valor'].sum()
+        c = sub[sub['tipo'] == 'Crédito']['valor'].sum()
+        nat = sub['natureza'].iloc[0]
+        saldo = (d - c) if nat in ['Ativo', 'Despesa', 'Encargos Financeiros'] else (c - d)
+        linhas.append((conta.title(), abs(saldo)))
+    return lines
+
+def total_grupo_com_sinal(df, nat):
+    if df.empty: return 0.0
+    d = df[df['tipo'] == 'Débito']['valor'].sum()
+    c = df[df['tipo'] == 'Crédito']['valor'].sum()
+    return (d - c) if nat in ['Ativo', 'Despesa', 'Encargos Financeiros'] else (c - d)
 
 # --- AUTENTICAÇÃO ---
 if st.session_state.user is None:
