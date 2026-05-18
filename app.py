@@ -75,7 +75,7 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
     pdf.cell(50, 7, f"R$ {v_lucro:,.2f}", border=1, ln=True, align="R")
     pdf.ln(4)
 
-    # 3. BALANÇO PATRIMONIAL ESTRUTURADO (CONFORME MODELO ESPECIFICADO)
+    # 3. BALANÇO PATRIMONIAL ESTRUTURADO
     pdf.set_font("Arial", "B", 11)
     pdf.cell(190, 7, "3. BALANÇO PATRIMONIAL", ln=True)
     
@@ -87,15 +87,12 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
     pdf.cell(30, 7, "Valor (R$)", border=1, align="R")
     pdf.ln()
 
-    # Separação das contas por categorias reais mapeadas do dataframe
     filt_ativo = df_per[df_per['natureza'] == 'Ativo']
     filt_passivo = df_per[df_per['natureza'] == 'Passivo']
     filt_pl = df_per[df_per['natureza'] == 'Patrimônio Líquido']
     
-    # Classificação interna arbitrária por amostragem baseada na imagem de referência
     circulante_contas = ['CAIXA', 'BANCOS', 'ESTOQUE', 'CLIENTES', 'ESTOQUES', 'DISPONÍVEL']
     
-    # Listas finais para preenchimento de linhas
     linhas_ativo = []
     linhas_passivo_pl = []
 
@@ -109,7 +106,6 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
         
     # 2. Ativo Realizável a Longo Prazo
     df_rlp = funct_filtro_contas(filt_ativo, circulante_contas, inc=False)
-    # Metade das não circulantes vai para Longo Prazo e metade para Permanente para simular o layout
     n_meio = len(df_rlp) // 2
     df_longo = df_rlp.iloc[:n_meio] if not df_rlp.empty else pd.DataFrame()
     v_longo = total_grupo_com_sinal(df_longo, 'Ativo')
@@ -122,29 +118,26 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
     v_perm = total_grupo_com_sinal(df_perm, 'Ativo')
     linhas_ativo.append(("Ativo Permanente", v_perm, True))
     
-    # Imobilizado / Diferido simulado dentro do Permanente
     if not df_perm.empty:
         linhas_ativo.append(("  Imobilizado", v_perm, True))
         for c, v in agrupar_por_conta(df_perm):
             linhas_ativo.append((f"    {c}", v, False))
 
     # --- MONTAGEM DO LADO DO PASSIVO E PL ---
-    # 1. Passivo Circulante / Exigível
+    # 1. Passivo Circulante
     v_total_pas = total_grupo_com_sinal(filt_passivo, 'Passivo')
     for c, v in agrupar_por_conta(filt_passivo):
         linhas_passivo_pl.append((c, v, False))
         
     # 2. Bloco Patrimônio Líquido
-    linhas_passivo_pl.append(("", None, False)) # Espaçador visual
+    linhas_passivo_pl.append(("", None, False))
     linhas_passivo_pl.append(("Patrimônio Líquido", None, True))
     for c, v in agrupar_por_conta(filt_pl):
         linhas_passivo_pl.append((c, v, False))
         
-    # Lucro / Prejuízo do Exercício adicionado explicitamente no PL
     label_lucro_ex = "Lucros do Exercício" if v_lucro >= 0 else "Prejuízos Acumulados"
     linhas_passivo_pl.append((label_lucro_ex, v_lucro, False))
 
-    # Equalização do tamanho das listas para renderização de tabela paralela
     max_linhas = max(len(linhas_ativo), len(linhas_passivo_pl))
     
     pdf.set_font("Arial", "", 8)
@@ -170,7 +163,7 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
             pdf.cell(30, 5.5, "", border=1)
         pdf.ln()
 
-    # Rodapé do Balanço - Totais Consolidados (Equação Ativo = Passivo + PL)
+    # Rodapé do Balanço
     pdf.set_font("Arial", "B", 9)
     pl_final_calculado = v_pl + v_lucro
     pdf.cell(65, 6.5, "Total do Ativo", border=1)
@@ -213,7 +206,6 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
 
     return pdf.output()
 
-# Auxiliares internas de estruturação contábil
 def funct_filtro_contas(df, lista, inc=True):
     if df.empty: return df
     condicao = df['descricao'].str.upper().isin(lista)
@@ -221,7 +213,6 @@ def funct_filtro_contas(df, lista, inc=True):
 
 def agrupar_por_conta(df):
     if df.empty: return []
-    # Mapeia saldos agregados respeitando a operação de débito e crédito
     linhas = []
     for conta in sorted(df['descricao'].unique()):
         sub = df[df['descricao'] == conta]
@@ -230,7 +221,7 @@ def agrupar_por_conta(df):
         nat = sub['natureza'].iloc[0]
         saldo = (d - c) if nat in ['Ativo', 'Despesa', 'Encargos Financeiros'] else (c - d)
         linhas.append((conta.title(), abs(saldo)))
-    return lines
+    return linhas
 
 def total_grupo_com_sinal(df, nat):
     if df.empty: return 0.0
@@ -418,7 +409,6 @@ else:
         st.dataframe(df_periodo[['data_lancamento', 'descricao', 'valor', 'tipo', 'status', 'justificativa']], use_container_width=True)
 
     elif st.session_state.menu_opcao == "⚙️ Gestão":
-        # RESTAURAÇÃO DO BOTÃO RESET
         if st.button("🚨 Resetar Tudo"):
             supabase.table("lancamentos").delete().eq("user_id", st.session_state.user.id).execute()
             st.rerun()
