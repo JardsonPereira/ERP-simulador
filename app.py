@@ -271,7 +271,7 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
             
             pdf.cell(20, 5.5, data_formatada, border=1, align="C")
             pdf.cell(50, 5.5, desc, border=1)
-            pdf.cell(30, 5.5, grupo_nome, border=1) # 100% Corrigido
+            pdf.cell(30, 5.5, grupo_nome, border=1) 
             pdf.cell(20, 5.5, r['tipo'], border=1, align="C")
             pdf.cell(25, 5.5, f"R$ {r['valor']:,.2f}", border=1, align="R")
             pdf.cell(45, 5.5, just, border=1)
