@@ -91,12 +91,12 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
     filt_passivo = df_per[df_per['natureza'] == 'Passivo']
     filt_pl = df_per[df_per['natureza'] == 'Patrimônio Líquido']
     
-    circulante_contas = ['CAIXA', 'BANCOS', 'ESTOQUE', 'CLIENTES', 'ESTOQUES', 'DISPONÍVEL']
-    
     linhas_ativo = []
     linhas_passivo_pl = []
 
-    # --- MONTAGEM DO LADO DO ATIVO ---
+    # --- MONTAGEM DO LADO DO ATIVO (CONCEITO CONTÁBIL CORRIGIDO) ---
+    circulante_contas = ['CAIXA', 'BANCO', 'BANCOS', 'ESTOQUE', 'ESTOQUES', 'CONTAS A RECEBER', 'CLIENTES', 'DISPONÍVEL']
+    
     # 1. Ativo Circulante
     df_circ = funct_filtro_contas(filt_ativo, circulante_contas, inc=True)
     v_circ = total_grupo_com_sinal(df_circ, 'Ativo')
@@ -104,17 +104,18 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
     for c, v in agrupar_por_conta(df_circ):
         linhas_ativo.append((f"  {c}", v, False))
         
+    # Isolando as contas não circulantes para evitar duplicidade
+    df_nao_circ = funct_filtro_contas(filt_ativo, circulante_contas, inc=False)
+    
     # 2. Ativo Realizável a Longo Prazo
-    df_rlp = funct_filtro_contas(filt_ativo, circulante_contas, inc=False)
-    n_meio = len(df_rlp) // 2
-    df_longo = df_rlp.iloc[:n_meio] if not df_rlp.empty else pd.DataFrame()
+    df_longo = df_nao_circ[df_nao_circ['descricao'].str.upper().str.contains('LP|LONGO PRAZO')]
     v_longo = total_grupo_com_sinal(df_longo, 'Ativo')
     linhas_ativo.append(("Ativo Realiz. Longo Prazo", v_longo, True))
     for c, v in agrupar_por_conta(df_longo):
         linhas_ativo.append((f"  {c}", v, False))
         
-    # 3. Ativo Permanente
-    df_perm = df_rlp.iloc[n_meio:] if not df_rlp.empty else pd.DataFrame()
+    # 3. Ativo Permanente (Imobilizado)
+    df_perm = df_nao_circ[~df_nao_circ['id'].isin(df_longo['id'])] if not df_nao_circ.empty else pd.DataFrame()
     v_perm = total_grupo_com_sinal(df_perm, 'Ativo')
     linhas_ativo.append(("Ativo Permanente", v_perm, True))
     
