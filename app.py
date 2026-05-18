@@ -8,6 +8,9 @@ import io
 # --- CONFIGURAÇÃO ---
 st.set_page_config(page_title="ContabilApp - Sistema Integrado", layout="wide")
 
+# --- CONFIGURAÇÃO DE ADMINISTRAÇÃO ---
+EMAIL_ADMIN = "jardsonspereira81@gmail.com"
+
 # --- ESTADOS DO SISTEMA ---
 if 'user' not in st.session_state: st.session_state.user = None
 if 'edit_id' not in st.session_state: st.session_state.edit_id = None
@@ -23,9 +26,35 @@ except Exception:
     st.stop()
 
 # --- FUNÇÕES ---
-def carregar_dados(u_id):
+def is_admin():
+    """Verifica se o usuário atualmente logado é o administrador"""
+    if st.session_state.user and hasattr(st.session_state.user, 'email'):
+        return st.session_state.user.email == EMAIL_ADMIN
+    return False
+
+def obter_todos_usuarios():
+    """Busca a lista de IDs únicos de usuários com lançamentos para alimentar o filtro do Admin"""
     try:
-        res = supabase.table("lancamentos").select("*").eq("user_id", u_id).execute()
+        res = supabase.table("lancamentos").select("user_id").execute()
+        temp_df = pd.DataFrame(res.data)
+        if not temp_df.empty:
+            return sorted(temp_df['user_id'].unique().tolist())
+        return []
+    except Exception:
+        return []
+
+def carregar_dados(u_id, usuario_selecionado="Todos"):
+    try:
+        # Se for admin e optou por ver tudo
+        if is_admin() and usuario_selecionado == "Todos":
+            res = supabase.table("lancamentos").select("*").execute()
+        # Se for admin e escolheu um usuário específico da lista
+        elif is_admin() and usuario_selecionado != "Todos":
+            res = supabase.table("lancamentos").select("*").eq("user_id", usuario_selecionado).execute()
+        # Se for um usuário comum, traz estritamente apenas os dados dele
+        else:
+            res = supabase.table("lancamentos").select("*").eq("user_id", u_id).execute()
+            
         temp_df = pd.DataFrame(res.data)
         if not temp_df.empty:
             temp_df['data_lancamento'] = pd.to_datetime(temp_df['data_lancamento']).dt.date
@@ -270,16 +299,34 @@ if st.session_state.user is None:
 # --- PROCESSAMENTO LATERAL ---
 with st.sidebar:
     st.write(f"👤 **{st.session_state.user.email}**")
+    if is_admin():
+        st.write("⭐ **Modo Administrador Ativo**")
+        
     if st.button("Sair"):
         st.session_state.user = None
         st.rerun()
     st.divider()
     
-    df_temp = carregar_dados(st.session_state.user.id)
+    # Injeta o controle de filtro dinâmico se for administrador
+    usuario_filtro = "Todos"
+    if is_admin():
+        st.header("🔍 Painel Admin")
+        opcoes_usuarios = ["Todos"] + obter_todos_usuarios()
+        usuario_filtro = st.selectbox("Filtrar lançamentos de:", opcoes_usuarios)
+        st.divider()
+    
+    # Carrega dados temporários para o formulário baseados no filtro de contexto
+    df_temp = carregar_dados(st.session_state.user.id, usuario_filtro)
     
     if st.session_state.edit_id and not df_temp.empty:
         st.header("📝 Editar Lançamento")
-        reg = df_temp[df_temp['id'] == st.session_state.edit_id].iloc[0]
+        linhas_para_editar = df_temp[df_temp['id'] == st.session_state.edit_id]
+        if not linhas_para_editar.empty:
+            reg = linhas_para_editar.iloc[0]
+        else:
+            reg = {"descricao": "", "natureza": "Ativo Circulante", "tipo": "Débito", "valor": 0.0, "justificativa": "", "status": "Pago", "data_lancamento": datetime.now().date()}
+            st.session_state.edit_id = None
+            
         if st.button("Cancelar Edição"):
             st.session_state.edit_id = None
             st.rerun()
@@ -312,7 +359,8 @@ with st.sidebar:
         just_input = st.text_area("Justificativa", value=reg['justificativa'])
         
         if st.form_submit_button("Confirmar"):
-            payload = {"user_id": st.session_state.user.id, "descricao": desc_input, "natureza": nat, "tipo": tipo, "valor": valor, "justificativa": just_input, "status": status_pag, "data_lancamento": str(data_f)}
+            user_dono = reg.get('user_id', st.session_state.user.id) if st.session_state.edit_id else st.session_state.user.id
+            payload = {"user_id": user_dono, "descricao": desc_input, "natureza": nat, "tipo": tipo, "valor": valor, "justificativa": just_input, "status": status_pag, "data_lancamento": str(data_f)}
             if st.session_state.edit_id: supabase.table("lancamentos").update(payload).eq("id", st.session_state.edit_id).execute()
             else: supabase.table("lancamentos").insert(payload).execute()
             st.session_state.edit_id = None
@@ -320,7 +368,8 @@ with st.sidebar:
             st.rerun()
 
 # --- CARREGAMENTO OFICIAL ---
-df_base = carregar_dados(st.session_state.user.id)
+# Usa a seleção do Admin da barra lateral para carregar a base oficial do dashboard
+df_base = carregar_dados(st.session_state.user.id, usuario_filtro if 'usuario_filtro' in locals() else "Todos")
 
 # --- CSS ---
 st.markdown("""<style>
@@ -502,8 +551,13 @@ else:
 
     elif st.session_state.menu_opcao == "⚙️ Gestão":
         if st.button("🚨 Resetar Tudo"):
-            supabase.table("lancamentos").delete().eq("user_id", st.session_state.user.id).execute()
-            st.rerun()
+            # Se for admin visualizando "Todos", impede o reset acidental de toda a base global
+            if is_admin() and usuario_filtro == "Todos":
+                st.error("Não é permitido resetar a base global de uma só vez no modo 'Todos'. Selecione um usuário específico para resetar.")
+            else:
+                alvo_reset = st.session_state.user.id if not is_admin() else usuario_filtro
+                supabase.table("lancamentos").delete().eq("user_id", alvo_reset).execute()
+                st.rerun()
             
         for _, row in df_base.sort_values('data_lancamento', ascending=False).iterrows():
             with st.expander(f"{row['data_lancamento']} | {row['descricao']} | {row['natureza']} | R$ {row['valor']:,.2f}"):
