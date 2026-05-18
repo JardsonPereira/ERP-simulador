@@ -451,20 +451,12 @@ else:
             st.markdown(f'<div class="dre-total" style="color:{cor}; border-top: 2px double #1e293b;">{label_final}: R$ {v_lucro:,.2f}</div>', unsafe_allow_html=True)
 
     elif st.session_state.menu_opcao == "💸 Fluxo de Caixa":
-        # --- CÁLCULOS DE LIQUIDEZ VS PASSIVO ---
-        # 1. Recursos Imediatamente Disponíveis (Caixa/Bancos do Ativo Circulante)
-        disponibilidades = s_fin  # O saldo final representa o acumulado de caixa/banco real disponível
-        
-        # 2. Obrigações Totais do Passivo (Circulante + Não Circulante) encontradas no período
+        disponibilidades = s_fin  
         pas_circ_total = get_saldo_total_por_natureza(df_periodo, 'Passivo Circulante')
         pas_nc_total = get_saldo_total_por_natureza(df_periodo, 'Passivo Não Circulante')
         passivo_total_obrigacoes = pas_circ_total + pas_nc_total
         
-        # 3. Cálculo de Índices Contábeis Reais
-        # Liquidez Imediata = Disponibilidades / Passivo Circulante
         liq_imediata = disponibilidades / pas_circ_total if pas_circ_total > 0 else disponibilidades
-        
-        # Solvência Geral = Disponibilidades / Passivo Total
         solvencia = disponibilidades / passivo_total_obrigacoes if passivo_total_obrigacoes > 0 else disponibilidades
 
         # --- EXIBIÇÃO DAS MÉTRICAS ---
@@ -472,7 +464,6 @@ else:
         m1.metric("Saldo em Caixa (Disponível)", f"R$ {disponibilidades:,.2f}")
         m2.metric("Obrigações Curtíssimo Prazo (Passivo Circ.)", f"R$ {pas_circ_total:,.2f}")
         
-        # Alertas Visuais para os Indicadores de Liquidez
         if liq_imediata >= 1.0:
             st.sidebar.success(f"Liquidez Segura: R$ {liq_imediata:.2f} de caixa para cada R$ 1,00 de dívida CP.")
             m3.metric("Índice Liquidez Imediata", f"{liq_imediata:.2f}", help="Capacidade de pagar o Passivo Circulante usando apenas o dinheiro em Caixa/Banco hoje.")
@@ -480,7 +471,7 @@ else:
             st.sidebar.warning(f"Atenção: Caixa atual cobre apenas {liq_imediata*100:.1f}% das contas de Curto Prazo.")
             m3.metric("Índice Liquidez Imediata", f"{liq_imediata:.2f}", delta="- Caixa Insuficiente p/ Passivo CP", delta_color="inverse")
             
-        m4.metric("Solvência (Caixa vs Passivo Total)", f"{solvencia:.2f}", help="Relação entre o dinheiro disponível em caixa e TODAS as dívidas registradas.")
+        m4.metric("Solvência (Caixa vs Passivo Total)", f"{solvencia:.2f}")
         
         # --- ANÁLISE COMPARATIVA ---
         st.subheader("📊 Relação Dinâmica: Disponibilidades vs Obrigações (Passivos)")
