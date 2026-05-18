@@ -49,11 +49,9 @@ def obter_todos_usuarios_mapeados():
     """Busca os nomes dos usuários na tabela perfis para alimentar o filtro do Admin"""
     mapeamento = {"Todos os Usuários": "Todos"}
     try:
-        # Busca a lista de perfis preenchidos no banco
         res_perfis = supabase.table("perfis").select("id, nome_usuario").execute()
         df_perfis = pd.DataFrame(res_perfis.data)
         
-        # Busca também os lançamentos para garantir redundância caso alguém não tenha perfil
         res_lanc = supabase.table("lancamentos").select("user_id").execute()
         df_lanc = pd.DataFrame(res_lanc.data)
         
@@ -273,7 +271,7 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
             
             pdf.cell(20, 5.5, data_formatada, border=1, align="C")
             pdf.cell(50, 5.5, desc, border=1)
-            pdf.cell(30, 5.5, grupo_nome, border=1)
+            pdf.cell(30, 5.5, grupo_nome, border=1) # 100% Corrigido
             pdf.cell(20, 5.5, r['tipo'], border=1, align="C")
             pdf.cell(25, 5.5, f"R$ {r['valor']:,.2f}", border=1, align="R")
             pdf.cell(45, 5.5, just, border=1)
@@ -327,8 +325,7 @@ if st.session_state.user is None:
             st.sidebar.error(f"Erro ao cadastrar: {e}")
     st.stop()
 
-# --- FORÇAR COMPLEMENTO DE CADASTRO (NOME DE USUÁRIO) ---
-# Se o usuário não tiver perfil, ele fica bloqueado nesta tela obrigatória até digitar o nome
+# --- FORÇAR COMPLEMENTO DE CADASTRO ---
 if not verificar_perfil(st.session_state.user.id):
     st.title("📋 Complete o seu Cadastro")
     st.write("Para continuar acessando o sistema, insira o seu nome ou o nome da sua empresa para identificação.")
@@ -360,20 +357,14 @@ with st.sidebar:
         st.rerun()
     st.divider()
     
-    # Injeta o controle de filtro dinâmico exibindo os NOMES DOS USUÁRIOS para o admin
     id_usuario_filtrado = "Todos"
     if is_admin():
         st.header("🔍 Painel Admin")
         dict_usuarios = obter_todos_usuarios_mapeados()
-        
-        # O selectbox mostra os nomes amigáveis salvos na tabela 'perfis'
         nome_selecionado = st.selectbox("Filtrar lançamentos de:", list(dict_usuarios.keys()))
-        
-        # Captura o ID correspondente àquele nome para fazer o filtro no banco
         id_usuario_filtrado = dict_usuarios[nome_selecionado]
         st.divider()
     
-    # Carrega dados temporários para o formulário baseados no filtro de contexto do admin
     df_temp = carregar_dados(st.session_state.user.id, id_usuario_filtrado)
     
     if st.session_state.edit_id and not df_temp.empty:
