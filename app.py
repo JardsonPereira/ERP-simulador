@@ -77,13 +77,13 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
 
     # 3. BALANÇO PATRIMONIAL ESTRUTURADO
     pdf.set_font("Arial", "B", 11)
-    pdf.cell(190, 7, "3. BALANÇO PATRIMONIAL", ln=True)
+    pdf.cell(190, 7, "3. BALANÇO PATRIMONIAL CONSOLIDADO", ln=True)
     
     # Cabeçalho das Colunas Principais do Balanço
     pdf.set_font("Arial", "B", 10)
-    pdf.cell(65, 7, "Ativo", border=1, align="C")
+    pdf.cell(65, 7, "ATIVO", border=1, align="C")
     pdf.cell(30, 7, "Valor (R$)", border=1, align="R")
-    pdf.cell(65, 7, "Passivo", border=1, align="C")
+    pdf.cell(65, 7, "PASSIVO E PL", border=1, align="C")
     pdf.cell(30, 7, "Valor (R$)", border=1, align="R")
     pdf.ln()
 
@@ -94,51 +94,64 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
     linhas_ativo = []
     linhas_passivo_pl = []
 
-    # --- MONTAGEM DO LADO DO ATIVO (CONCEITO CONTÁBIL CORRIGIDO) ---
-    circulante_contas = ['CAIXA', 'BANCO', 'BANCOS', 'ESTOQUE', 'ESTOQUES', 'CONTAS A RECEBER', 'CLIENTES', 'DISPONÍVEL']
+    # ==================== ESTRUTURAÇÃO DO ATIVO ====================
+    # Mapeamento estrito de contas circulantes (Curto Prazo)
+    palavras_circulante_at = ['CAIXA', 'BANCO', 'BANCOS', 'ESTOQUE', 'ESTOQUES', 'CONTAS A RECEBER', 'CLIENTES', 'DISPONÍVEL', 'APLICAÇÃO']
     
-    # 1. Ativo Circulante
-    df_circ = funct_filtro_contas(filt_ativo, circulante_contas, inc=True)
-    v_circ = total_grupo_com_sinal(df_circ, 'Ativo')
-    linhas_ativo.append(("Ativo Circulante", v_circ, True))
-    for c, v in agrupar_por_conta(df_circ):
+    # Ativo Circulante
+    df_at_circ = filt_ativo[filt_ativo['descricao'].str.upper().isin(palavras_circulante_at)]
+    v_at_circ = total_grupo_com_sinal(df_at_circ, 'Ativo')
+    linhas_ativo.append(("ATIVO CIRCULANTE", v_at_circ, True))
+    for c, v in agrupar_por_conta(df_at_circ):
         linhas_ativo.append((f"  {c}", v, False))
         
-    # Isolando as contas não circulantes para evitar duplicidade
-    df_nao_circ = funct_filtro_contas(filt_ativo, circulante_contas, inc=False)
+    # Ativo Não Circulante (Realizável a Longo Prazo, Imobilizado, etc.)
+    df_at_nc = filt_ativo[~filt_ativo['descricao'].str.upper().isin(palavras_circulante_at)]
+    v_at_nc = total_grupo_com_sinal(df_at_nc, 'Ativo')
+    linhas_ativo.append(("ATIVO NÃO CIRCULANTE", v_at_nc, True))
     
-    # 2. Ativo Realizável a Longo Prazo
-    df_longo = df_nao_circ[df_nao_circ['descricao'].str.upper().str.contains('LP|LONGO PRAZO')]
-    v_longo = total_grupo_com_sinal(df_longo, 'Ativo')
-    linhas_ativo.append(("Ativo Realiz. Longo Prazo", v_longo, True))
-    for c, v in agrupar_por_conta(df_longo):
-        linhas_ativo.append((f"  {c}", v, False))
-        
-    # 3. Ativo Permanente (Imobilizado)
-    df_perm = df_nao_circ[~df_nao_circ['id'].isin(df_longo['id'])] if not df_nao_circ.empty else pd.DataFrame()
-    v_perm = total_grupo_com_sinal(df_perm, 'Ativo')
-    linhas_ativo.append(("Ativo Permanente", v_perm, True))
-    
-    if not df_perm.empty:
-        linhas_ativo.append(("  Imobilizado", v_perm, True))
-        for c, v in agrupar_por_conta(df_perm):
+    df_at_lp = df_at_nc[df_at_nc['descricao'].str.upper().str.contains('LP|LONGO PRAZO')]
+    if not df_at_lp.empty:
+        linhas_ativo.append(("  Realizável a Longo Prazo", total_grupo_com_sinal(df_at_lp, 'Ativo'), True))
+        for c, v in agrupar_por_conta(df_at_lp):
+            linhas_ativo.append((f"    {c}", v, False))
+            
+    df_at_imob = df_at_nc[~df_at_nc['id'].isin(df_at_lp['id'])] if not df_at_nc.empty else pd.DataFrame()
+    if not df_at_imob.empty:
+        linhas_ativo.append(("  Imobilizado / Permanente", total_grupo_com_sinal(df_at_imob, 'Ativo'), True))
+        for c, v in agrupar_por_conta(df_at_imob):
             linhas_ativo.append((f"    {c}", v, False))
 
-    # --- MONTAGEM DO LADO DO PASSIVO E PL ---
-    # 1. Passivo Circulante
-    v_total_pas = total_grupo_com_sinal(filt_passivo, 'Passivo')
-    for c, v in agrupar_por_conta(filt_passivo):
-        linhas_passivo_pl.append((c, v, False))
+    # ==================== ESTRUTURAÇÃO DO PASSIVO E PL ====================
+    # Mapeamento estrito de contas circulantes do passivo (Obrigações de Curto Prazo)
+    palavras_circulante_pass = ['FORNECEDORES', 'SALÁRIOS', 'IMPOSTOS', 'CONTAS A PAGAR', 'DUPLICATAS', 'EMPRÉSTIMO CP', 'ENCARGOS']
+    
+    # Passivo Circulante
+    df_pass_circ = filt_passivo[filt_passivo['descricao'].str.upper().isin(palavras_circulante_pass) | (~filt_passivo['descricao'].str.upper().str.contains('LP|LONGO PRAZO'))]
+    # Se contiver explicitamente 'LP' ou 'LONGO PRAZO', remove do circulante
+    df_pass_circ = df_pass_circ[~df_pass_circ['descricao'].str.upper().str.contains('LP|LONGO PRAZO')]
+    v_pass_circ = total_grupo_com_sinal(df_pass_circ, 'Passivo')
+    linhas_passivo_pl.append(("PASSIVO CIRCULANTE", v_pass_circ, True))
+    for c, v in agrupar_por_conta(df_pass_circ):
+        linhas_passivo_pl.append((f"  {c}", v, False))
         
-    # 2. Bloco Patrimônio Líquido
+    # Passivo Não Circulante (Exigível a Longo Prazo)
+    df_pass_nc = filt_passivo[filt_passivo['id'].isin(filt_passivo['id']) & ~filt_passivo['id'].isin(df_pass_circ['id'])]
+    v_pass_nc = total_grupo_com_sinal(df_pass_nc, 'Passivo')
+    linhas_passivo_pl.append(("PASSIVO NÃO CIRCULANTE", v_pass_nc, True))
+    for c, v in agrupar_por_conta(df_pass_nc):
+        linhas_passivo_pl.append((f"  {c}", v, False))
+        
+    # Bloco Patrimônio Líquido
     linhas_passivo_pl.append(("", None, False))
-    linhas_passivo_pl.append(("Patrimônio Líquido", None, True))
+    linhas_passivo_pl.append(("PATRIMÔNIO LÍQUIDO", None, True))
     for c, v in agrupar_por_conta(filt_pl):
-        linhas_passivo_pl.append((c, v, False))
+        linhas_passivo_pl.append((f"  {c}", v, False))
         
-    label_lucro_ex = "Lucros do Exercício" if v_lucro >= 0 else "Prejuízos Acumulados"
+    label_lucro_ex = "  Lucros do Exercício" if v_lucro >= 0 else "  Prejuízos Acumulados"
     linhas_passivo_pl.append((label_lucro_ex, v_lucro, False))
 
+    # ==================== IMPRESSÃO EM DUAS COLUNAS ====================
     max_linhas = max(len(linhas_ativo), len(linhas_passivo_pl))
     
     pdf.set_font("Arial", "", 8)
@@ -155,7 +168,7 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
 
         # Coluna do Passivo / PL
         if index < len(linhas_passivo_pl):
-            desc_pas, val_pas, is_bold_pas = linhas_passivo_pl[index]
+            desc_pas, val_pas, is_bold_pas = lines_passivo_pl = linhas_passivo_pl[index]
             pdf.set_font("Arial", "B" if is_bold_pas else "", 8)
             pdf.cell(65, 5.5, desc_pas, border=1)
             pdf.cell(30, 5.5, f"{val_pas:,.2f}" if val_pas is not None else "", border=1, align="R")
@@ -167,9 +180,9 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
     # Rodapé do Balanço
     pdf.set_font("Arial", "B", 9)
     pl_final_calculado = v_pl + v_lucro
-    pdf.cell(65, 6.5, "Total do Ativo", border=1)
+    pdf.cell(65, 6.5, "TOTAL DO ATIVO", border=1)
     pdf.cell(30, 6.5, f"{v_at:,.2f}", border=1, align="R")
-    pdf.cell(65, 6.5, "Total do Passivo + PL", border=1)
+    pdf.cell(65, 6.5, "TOTAL DO PASSIVO + PL", border=1)
     pdf.cell(30, 6.5, f"{v_pas + pl_final_calculado:,.2f}", border=1, align="R")
     pdf.ln(8)
 
