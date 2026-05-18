@@ -31,6 +31,12 @@ def carregar_dados(u_id):
             temp_df['data_lancamento'] = pd.to_datetime(temp_df['data_lancamento']).dt.date
             if 'status' not in temp_df.columns: temp_df['status'] = 'Pago'
             if 'justificativa' not in temp_df.columns: temp_df['justificativa'] = ''
+            
+            # Retrocompatibilidade: ajusta cadastros antigos baseados no texto padrão se necessário
+            temp_df['natureza'] = temp_df['natureza'].replace({
+                'Ativo': 'Ativo Circulante',
+                'Passivo': 'Passivo Circulante'
+            })
         return temp_df
     except Exception: return pd.DataFrame()
 
@@ -87,57 +93,38 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
     pdf.cell(30, 7, "Valor (R$)", border=1, align="R")
     pdf.ln()
 
-    filt_ativo = df_per[df_per['natureza'] == 'Ativo']
-    filt_passivo = df_per[df_per['natureza'] == 'Passivo']
+    # Separação com base nos novos nomes dos grupos
+    df_at_circ = df_per[df_per['natureza'] == 'Ativo Circulante']
+    df_at_nc = df_per[df_per['natureza'] == 'Ativo Não Circulante']
+    df_pass_circ = df_per[df_per['natureza'] == 'Passivo Circulante']
+    df_pass_nc = df_per[df_per['natureza'] == 'Passivo Não Circulante']
     filt_pl = df_per[df_per['natureza'] == 'Patrimônio Líquido']
     
     linhas_ativo = []
     linhas_passivo_pl = []
 
     # ==================== ESTRUTURAÇÃO DO ATIVO ====================
-    # Mapeamento estrito de contas circulantes (Curto Prazo)
-    palavras_circulante_at = ['CAIXA', 'BANCO', 'BANCOS', 'ESTOQUE', 'ESTOQUES', 'CONTAS A RECEBER', 'CLIENTES', 'DISPONÍVEL', 'APLICAÇÃO']
-    
     # Ativo Circulante
-    df_at_circ = filt_ativo[filt_ativo['descricao'].str.upper().isin(palavras_circulante_at)]
-    v_at_circ = total_grupo_com_sinal(df_at_circ, 'Ativo')
+    v_at_circ = total_grupo_com_sinal(df_at_circ, 'Ativo Circulante')
     linhas_ativo.append(("ATIVO CIRCULANTE", v_at_circ, True))
     for c, v in agrupar_por_conta(df_at_circ):
         linhas_ativo.append((f"  {c}", v, False))
         
-    # Ativo Não Circulante (Realizável a Longo Prazo, Imobilizado, etc.)
-    df_at_nc = filt_ativo[~filt_ativo['descricao'].str.upper().isin(palavras_circulante_at)]
-    v_at_nc = total_grupo_com_sinal(df_at_nc, 'Ativo')
-    linhas_ativo.append(("ATIVO NÃO CIRCULANTE", v_at_nc, True))
-    
-    df_at_lp = df_at_nc[df_at_nc['descricao'].str.upper().str.contains('LP|LONGO PRAZO')]
-    if not df_at_lp.empty:
-        linhas_ativo.append(("  Realizável a Longo Prazo", total_grupo_com_sinal(df_at_lp, 'Ativo'), True))
-        for c, v in agrupar_por_conta(df_at_lp):
-            linhas_ativo.append((f"    {c}", v, False))
-            
-    df_at_imob = df_at_nc[~df_at_nc['id'].isin(df_at_lp['id'])] if not df_at_nc.empty else pd.DataFrame()
-    if not df_at_imob.empty:
-        linhas_ativo.append(("  Imobilizado / Permanente", total_grupo_com_sinal(df_at_imob, 'Ativo'), True))
-        for c, v in agrupar_por_conta(df_at_imob):
-            linhas_ativo.append((f"    {c}", v, False))
+    # Ativo Não Circulante
+    v_at_nc = total_grupo_com_sinal(df_at_nc, 'Ativo Não Circulante')
+    linhas_ativo.append(("ATIVO NÃO IMPORTANTE / NÃO CIRCULANTE", v_at_nc, True))
+    for c, v in agrupar_por_conta(df_at_nc):
+        linhas_ativo.append((f"  {c}", v, False))
 
     # ==================== ESTRUTURAÇÃO DO PASSIVO E PL ====================
-    # Mapeamento estrito de contas circulantes do passivo (Obrigações de Curto Prazo)
-    palavras_circulante_pass = ['FORNECEDORES', 'SALÁRIOS', 'IMPOSTOS', 'CONTAS A PAGAR', 'DUPLICATAS', 'EMPRÉSTIMO CP', 'ENCARGOS']
-    
     # Passivo Circulante
-    df_pass_circ = filt_passivo[filt_passivo['descricao'].str.upper().isin(palavras_circulante_pass) | (~filt_passivo['descricao'].str.upper().str.contains('LP|LONGO PRAZO'))]
-    # Se contiver explicitamente 'LP' ou 'LONGO PRAZO', remove do circulante
-    df_pass_circ = df_pass_circ[~df_pass_circ['descricao'].str.upper().str.contains('LP|LONGO PRAZO')]
-    v_pass_circ = total_grupo_com_sinal(df_pass_circ, 'Passivo')
+    v_pass_circ = total_grupo_com_sinal(df_pass_circ, 'Passivo Circulante')
     linhas_passivo_pl.append(("PASSIVO CIRCULANTE", v_pass_circ, True))
     for c, v in agrupar_por_conta(df_pass_circ):
         linhas_passivo_pl.append((f"  {c}", v, False))
         
-    # Passivo Não Circulante (Exigível a Longo Prazo)
-    df_pass_nc = filt_passivo[filt_passivo['id'].isin(filt_passivo['id']) & ~filt_passivo['id'].isin(df_pass_circ['id'])]
-    v_pass_nc = total_grupo_com_sinal(df_pass_nc, 'Passivo')
+    # Passivo Não Circulante
+    v_pass_nc = total_grupo_com_sinal(df_pass_nc, 'Passivo Não Circulante')
     linhas_passivo_pl.append(("PASSIVO NÃO CIRCULANTE", v_pass_nc, True))
     for c, v in agrupar_por_conta(df_pass_nc):
         linhas_passivo_pl.append((f"  {c}", v, False))
@@ -168,7 +155,7 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
 
         # Coluna do Passivo / PL
         if index < len(linhas_passivo_pl):
-            desc_pas, val_pas, is_bold_pas = lines_passivo_pl = linhas_passivo_pl[index]
+            desc_pas, val_pas, is_bold_pas = linhas_passivo_pl[index]
             pdf.set_font("Arial", "B" if is_bold_pas else "", 8)
             pdf.cell(65, 5.5, desc_pas, border=1)
             pdf.cell(30, 5.5, f"{val_pas:,.2f}" if val_pas is not None else "", border=1, align="R")
@@ -220,11 +207,6 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
 
     return pdf.output()
 
-def funct_filtro_contas(df, lista, inc=True):
-    if df.empty: return df
-    condicao = df['descricao'].str.upper().isin(lista)
-    return df[condicao] if inc else df[~condicao]
-
 def agrupar_por_conta(df):
     if df.empty: return []
     linhas = []
@@ -233,7 +215,12 @@ def agrupar_por_conta(df):
         d = sub[sub['tipo'] == 'Débito']['valor'].sum()
         c = sub[sub['tipo'] == 'Crédito']['valor'].sum()
         nat = sub['natureza'].iloc[0]
-        saldo = (d - c) if nat in ['Ativo', 'Despesa', 'Encargos Financeiros'] else (c - d)
+        
+        # Lógica de saldo com base nos novos grupos
+        if 'Ativo' in nat or nat in ['Despesa', 'Encargos Financeiros']:
+            saldo = d - c
+        else:
+            saldo = c - d
         linhas.append((conta.title(), abs(saldo)))
     return linhas
 
@@ -241,7 +228,9 @@ def total_grupo_com_sinal(df, nat):
     if df.empty: return 0.0
     d = df[df['tipo'] == 'Débito']['valor'].sum()
     c = df[df['tipo'] == 'Crédito']['valor'].sum()
-    return (d - c) if nat in ['Ativo', 'Despesa', 'Encargos Financeiros'] else (c - d)
+    if 'Ativo' in nat or nat in ['Despesa', 'Encargos Financeiros']:
+        return d - c
+    return c - d
 
 # --- AUTENTICAÇÃO ---
 if st.session_state.user is None:
@@ -278,18 +267,28 @@ with st.sidebar:
             st.rerun()
     else:
         st.header("➕ Novo Lançamento")
-        reg = {"descricao": "", "natureza": "Ativo", "tipo": "Débito", "valor": 0.0, "justificativa": "", "status": "Pago", "data_lancamento": datetime.now().date()}
+        reg = {"descricao": "", "natureza": "Ativo Circulante", "tipo": "Débito", "valor": 0.0, "justificativa": "", "status": "Pago", "data_lancamento": datetime.now().date()}
 
     with st.form(key=f"contabil_form_{st.session_state.form_count}"):
         contas_existentes = sorted(df_temp['descricao'].unique().tolist()) if not df_temp.empty else []
         opcoes_conta = ["+ Adicionar Nova Conta"] + contas_existentes
         idx_conta = opcoes_conta.index(reg['descricao']) if reg['descricao'] in contas_existentes else 0
         conta_sel = st.selectbox("Selecione a Conta", opcoes_conta, index=idx_conta)
+        
+        # Sugestões automáticas baseadas no seu input de regras contábeis
         desc_input = st.text_input("Nome da Conta", value=reg['descricao']).upper().strip() if conta_sel == "+ Adicionar Nova Conta" else conta_sel
         data_f = st.date_input("Data", value=reg['data_lancamento'])
         
-        grupos = ["Ativo", "Passivo", "Patrimônio Líquido", "Receita", "Despesa", "Encargos Financeiros"]
-        nat = st.selectbox("Grupo", grupos, index=grupos.index(reg['natureza']) if reg['natureza'] in grupos else 0)
+        # OPÇÕES DO GRUPO ATUALIZADAS CONFORME SOLICITADO
+        grupos = ["Ativo Circulante", "Ativo Não Circulante", "Passivo Circulante", "Passivo Não Circulante", "Patrimônio Líquido", "Receita", "Despesa", "Encargos Financeiros"]
+        
+        # Auxiliar para preenchimento inteligente de novos cadastros rápidos
+        idx_inicial_grupo = grupos.index(reg['natureza']) if reg['natureza'] in grupos else 0
+        if conta_sel == "+ Adicionar Nova Conta" and desc_input:
+            if "RECEBER" in desc_input or "CLIENTE" in desc_input: idx_inicial_grupo = grupos.index("Ativo Circulante")
+            elif "VEICULO" in desc_input or "IMOBILIZADO" in desc_input: idx_inicial_grupo = grupos.index("Ativo Não Circulante")
+
+        nat = st.selectbox("Grupo (Classificação Contábil)", grupos, index=idx_inicial_grupo)
         tipo = st.radio("Operação", ["Débito", "Crédito"], index=0 if reg['tipo'] == "Débito" else 1, horizontal=True)
         valor = st.number_input("Valor", min_value=0.0, value=float(reg['valor']))
         
@@ -343,23 +342,29 @@ def get_caixa_acumulado(data_limite):
 s_ini = get_caixa_acumulado(data_ini - timedelta(days=1))
 s_fin = get_caixa_acumulado(data_fim)
 
-# --- CÁLCULOS TÉCNICOS ---
-def get_saldo(df, nat):
+# --- CÁLCULOS TÉCNICOS ADAPTADOS ---
+def get_saldo_total_por_natureza(df, nat):
     if df.empty: return 0.0
     d = df[(df['natureza'] == nat) & (df['tipo'] == 'Débito')]['valor'].sum()
     c = df[(df['natureza'] == nat) & (df['tipo'] == 'Crédito')]['valor'].sum()
-    return (d - c) if nat in ['Ativo', 'Despesa', 'Encargos Financeiros'] else (c - d)
+    if 'Ativo' in nat or nat in ['Despesa', 'Encargos Financeiros']:
+        return d - c
+    return c - d
 
 v_rec = df_periodo[(df_periodo['natureza'] == 'Receita') & (df_periodo['tipo'] == 'Crédito')]['valor'].sum()
 v_desp_op = df_periodo[(df_periodo['natureza'] == 'Despesa') & (df_periodo['tipo'] == 'Débito')]['valor'].sum()
 v_finan = df_periodo[(df_periodo['natureza'] == 'Encargos Financeiros') & (df_periodo['tipo'] == 'Débito')]['valor'].sum()
 v_lucro = v_rec - v_desp_op - v_finan
-v_at_per, v_pas_per, v_pl_per = get_saldo(df_periodo, 'Ativo'), get_saldo(df_periodo, 'Passivo'), get_saldo(df_periodo, 'Patrimônio Líquido')
+
+# Consolidação Macro de Ativo e Passivo para o PDF
+v_at_total = get_saldo_total_por_natureza(df_periodo, 'Ativo Circulante') + get_saldo_total_por_natureza(df_periodo, 'Ativo Não Circulante')
+v_pas_total = get_saldo_total_por_natureza(df_periodo, 'Passivo Circulante') + get_saldo_total_por_natureza(df_periodo, 'Passivo Não Circulante')
+v_pl_per = get_saldo_total_por_natureza(df_periodo, 'Patrimônio Líquido')
 
 # Botão PDF
 col_imp, _ = st.columns([1, 4])
 with col_imp:
-    pdf_bytes = gerar_pdf(st.session_state.user.email, df_periodo, data_ini, data_fim, s_ini, s_fin, v_at_per, v_pas_per, v_pl_per, v_rec, v_desp_op, v_rec - v_desp_op, v_finan, v_lucro)
+    pdf_bytes = gerar_pdf(st.session_state.user.email, df_periodo, data_ini, data_fim, s_ini, s_fin, v_at_total, v_pas_total, v_pl_per, v_rec, v_desp_op, v_rec - v_desp_op, v_finan, v_lucro)
     st.download_button("🖨️ Baixar PDF", data=bytes(pdf_bytes), file_name=f"Relatorio_{data_ini}.pdf", mime="application/pdf")
 
 # --- CONTEÚDO ---
@@ -367,7 +372,7 @@ if df_periodo.empty and st.session_state.menu_opcao != "⚙️ Gestão":
     st.info("Sem dados no período.")
 else:
     if st.session_state.menu_opcao == "📊 Razonetes":
-        for grupo in ["Ativo", "Passivo", "Patrimônio Líquido", "Receita", "Despesa", "Encargos Financeiros"]:
+        for grupo in ["Ativo Circulante", "Ativo Não Circulante", "Passivo Circulante", "Passivo Não Circulante", "Patrimônio Líquido", "Receita", "Despesa", "Encargos Financeiros"]:
             df_g = df_periodo[df_periodo['natureza'] == grupo]
             if not df_g.empty:
                 st.subheader(grupo)
@@ -375,7 +380,12 @@ else:
                 for i, conta in enumerate(sorted(df_g['descricao'].unique())):
                     df_c = df_g[df_g['descricao'] == conta]
                     v_d, v_c = df_c[df_c['tipo']=='Débito']['valor'].sum(), df_c[df_c['tipo']=='Crédito']['valor'].sum()
-                    saldo = (v_d - v_c) if grupo in ["Ativo", "Despesa", "Encargos Financeiros"] else (v_c - v_d)
+                    
+                    if 'Ativo' in grupo or grupo in ["Despesa", "Encargos Financeiros"]:
+                        saldo = v_d - v_c
+                    else:
+                        saldo = v_c - v_d
+                        
                     with cols[i % 3]:
                         st.markdown(f'<div class="conta-card"><div class="conta-titulo">{conta}</div>', unsafe_allow_html=True)
                         c1, c2 = st.columns(2)
@@ -392,7 +402,7 @@ else:
         for conta in sorted(df_periodo['descricao'].unique()):
             df_c = df_periodo[df_periodo['descricao'] == conta]
             d, c = df_c[df_c['tipo']=='Débito']['valor'].sum(), df_c[df_c['tipo']=='Crédito']['valor'].sum()
-            bal_data.append({"Conta": conta, "Débito": d, "Crédito": c, "SD": d-c if d>c else 0, "SC": c-d if c>d else 0})
+            bal_data.append({"Conta": conta, "Grupo": df_c['natureza'].iloc[0], "Débito": d, "Crédito": c, "SD": d-c if d>c else 0, "SC": c-d if c>d else 0})
         df_bal = pd.DataFrame(bal_data)
         st.table(df_bal.style.format(precision=2))
         c1, c2, c3, c4 = st.columns(4)
@@ -428,7 +438,7 @@ else:
             st.rerun()
             
         for _, row in df_base.sort_values('data_lancamento', ascending=False).iterrows():
-            with st.expander(f"{row['data_lancamento']} | {row['descricao']} | R$ {row['valor']}"):
+            with st.expander(f"{row['data_lancamento']} | {row['descricao']} | {row['natureza']} | R$ {row['valor']}"):
                 c1, c2 = st.columns(2)
                 if c1.button("✏️ Editar", key=f"ed_{row['id']}"):
                     st.session_state.edit_id = row['id']
