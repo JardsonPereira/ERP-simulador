@@ -264,7 +264,7 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
             
             pdf.cell(20, 5.5, data_formatada, border=1, align="C")
             pdf.cell(50, 5.5, desc, border=1)
-            pdf.cell(30, 5.5, grupo_nome, border=1) # Corrigido aqui de group_nome para grupo_nome
+            pdf.cell(30, 5.5, grupo_nome, border=1)  # Rigorosamente corrigido aqui
             pdf.cell(20, 5.5, r['tipo'], border=1, align="C")
             pdf.cell(25, 5.5, f"R$ {r['valor']:,.2f}", border=1, align="R")
             pdf.cell(45, 5.5, just, border=1)
@@ -500,4 +500,95 @@ else:
         c4.metric("Total Credor (SC)", f"R$ {df_bal['SC'].sum():,.2f}")
 
     elif st.session_state.menu_opcao == "📈 DRE":
-        col_d, _ = st.columns(
+        col_d, _ = st.columns([2, 1])
+        with col_d:
+            st.markdown(f'<div class="dre-row" style="font-weight: bold;"><span>(+) RECEITAS</span><span>R$ {v_rec:,.2f}</span></div>', unsafe_allow_html=True)
+            df_rec = df_periodo[df_periodo['natureza'] == 'Receita']
+            for conta, valor in agrupar_por_conta(df_rec):
+                st.markdown(f'<div class="dre-subrow"><span>{conta}</span><span>R$ {valor:,.2f}</span></div>', unsafe_allow_html=True)
+                
+            st.markdown(f'<div class="dre-row" style="font-weight: bold; margin-top: 10px;"><span>(-) DESPESAS OPERACIONAIS</span><span>(R$ {v_desp_op:,.2f})</span></div>', unsafe_allow_html=True)
+            df_desp = df_periodo[df_periodo['natureza'] == 'Despesa']
+            for conta, valor in agrupar_por_conta(df_desp):
+                st.markdown(f'<div class="dre-subrow"><span>{conta}</span><span>(R$ {valor:,.2f})</span></div>', unsafe_allow_html=True)
+                
+            st.markdown(f'<div class="dre-total">(=) EBITDA: R$ {v_rec - v_desp_op:,.2f}</div>', unsafe_allow_html=True)
+            
+            st.markdown(f'<div class="dre-row" style="font-weight: bold; margin-top: 10px;"><span>(-) ENCARGOS FINANCEIROS / IMPOSTOS</span><span>(R$ {v_finan:,.2f})</span></div>', unsafe_allow_html=True)
+            df_fin = df_periodo[df_periodo['natureza'] == 'Encargos Financeiros']
+            for conta, valor in agrupar_por_conta(df_fin):
+                st.markdown(f'<div class="dre-subrow"><span>{conta}</span><span>(R$ {valor:,.2f})</span></div>', unsafe_allow_html=True)
+                
+            cor = "#059669" if v_lucro >= 0 else "#dc2626"
+            label_final = "(=) LUCRO LÍQUIDO" if v_lucro >= 0 else "(=) PREJUÍZO LÍQUIDO"
+            st.markdown(f'<div class="dre-total" style="color:{cor}; border-top: 2px double #1e293b;">{label_final}: R$ {v_lucro:,.2f}</div>', unsafe_allow_html=True)
+
+    elif st.session_state.menu_opcao == "💸 Fluxo de Caixa":
+        disponibilidades = s_fin  
+        pas_circ_total = get_saldo_total_por_natureza(df_periodo, 'Passivo Circulante')
+        pas_nc_total = get_saldo_total_por_natureza(df_periodo, 'Passivo Não Circulante')
+        passivo_total_obrigacoes = pas_circ_total + pas_nc_total
+        
+        liq_imediata = disponibilidades / pas_circ_total if pas_circ_total > 0 else disponibilidades
+        solvencia = disponibilidades / passivo_total_obrigacoes if passivo_total_obrigacoes > 0 else disponibilidades
+
+        # --- EXIBIÇÃO DAS MÉTRICAS ---
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Saldo em Caixa (Disponível)", f"R$ {disponibilidades:,.2f}")
+        m2.metric("Obrigações Curtíssimo Prazo (Passivo Circ.)", f"R$ {pas_circ_total:,.2f}")
+        
+        if liq_imediata >= 1.0:
+            st.sidebar.success(f"Liquidez Segura: R$ {liq_imediata:.2f} de caixa para cada R$ 1,00 de dívida CP.")
+            m3.metric("Índice Liquidez Imediata", f"{liq_imediata:.2f}", help="Capacidade de pagar o Passivo Circulante usando apenas o dinheiro em Caixa/Banco hoje.")
+        else:
+            st.sidebar.warning(f"Atenção: Caixa atual cobre apenas {liq_imediata*100:.1f}% das contas de Curto Prazo.")
+            m3.metric("Índice Liquidez Imediata", f"{liq_imediata:.2f}", delta="- Caixa Insuficiente p/ Passivo CP", delta_color="inverse")
+            
+        m4.metric("Solvência (Caixa vs Passivo Total)", f"{solvencia:.2f}")
+        
+        # --- ANÁLISE COMPARATIVA FORMATADA COM R$ ---
+        st.subheader("📊 Relação Dinâmica: Disponibilidades vs Obrigações (Passivos)")
+        
+        col_t1, col_t2 = st.columns(2)
+        with col_t1:
+            st.markdown("**Recursos Disponíveis para Liquidação**")
+            df_rec_disp = pd.DataFrame([
+                {"Origem": "Saldo Inicial do Período", "Valor": s_ini},
+                {"Origem": "(+) Entradas Acumuladas", "Valor": df_periodo[df_periodo['status'] == "Entrada"]['valor'].sum()},
+                {"Origem": "(=) Disponibilidade Atual em Caixa/Bancos", "Valor": disponibilidades}
+            ])
+            st.dataframe(df_rec_disp.style.format(formatter={"Valor": "R$ {:,.2f}"}), use_container_width=True, hide_index=True)
+            
+        with col_t2:
+            st.markdown("**Composição do Passivo Executado/Pendente**")
+            df_comp_pas = pd.DataFrame([
+                {"Exigibilidade": "Passivo Circulante (Curto Prazo)", "Valor": pas_circ_total},
+                {"Exigibilidade": "Passivo Não Circulante (Longo Prazo)", "Valor": pas_nc_total},
+                {"Exigibilidade": "Total de Dívidas / Obrigações", "Valor": passivo_total_obrigacoes}
+            ])
+            st.dataframe(df_comp_pas.style.format(formatter={"Valor": "R$ {:,.2f}"}), use_container_width=True, hide_index=True)
+            
+        st.divider()
+        st.markdown("**Histórico Detalhado das Movimentações**")
+        df_historico = df_periodo[['data_lancamento', 'descricao', 'valor', 'tipo', 'status', 'justificativa']].copy()
+        st.dataframe(df_historico.style.format(formatter={"valor": "R$ {:,.2f}"}), use_container_width=True, hide_index=True)
+
+    elif st.session_state.menu_opcao == "⚙️ Gestão":
+        if st.button("🚨 Resetar Tudo"):
+            # Se for admin visualizando "Todos", impede o reset acidental de toda a base global
+            if is_admin() and id_usuario_filtrado == "Todos":
+                st.error("Não é permitido resetar a base global de uma só vez no modo 'Todos'. Selecione um usuário específico para resetar.")
+            else:
+                alvo_reset = st.session_state.user.id if not is_admin() else id_usuario_filtrado
+                supabase.table("lancamentos").delete().eq("user_id", alvo_reset).execute()
+                st.rerun()
+            
+        for _, row in df_base.sort_values('data_lancamento', ascending=False).iterrows():
+            with st.expander(f"{row['data_lancamento']} | {row['descricao']} | {row['natureza']} | R$ {row['valor']:,.2f}"):
+                c1, c2 = st.columns(2)
+                if c1.button("✏️ Editar", key=f"ed_{row['id']}"):
+                    st.session_state.edit_id = row['id']
+                    st.rerun()
+                if c2.button("🗑️ Excluir", key=f"ex_{row['id']}"):
+                    supabase.table("lancamentos").delete().eq("id", row['id']).execute()
+                    st.rerun()
