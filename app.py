@@ -419,7 +419,7 @@ else:
             d, c = df_c[df_c['tipo']=='Débito']['valor'].sum(), df_c[df_c['tipo']=='Crédito']['valor'].sum()
             bal_data.append({"Conta": conta, "Grupo": df_c['natureza'].iloc[0], "Débito": d, "Crédito": c, "SD": d-c if d>c else 0, "SC": c-d if c>d else 0})
         df_bal = pd.DataFrame(bal_data)
-        st.table(df_bal.style.format(precision=2))
+        st.table(df_bal.style.format(formatter={"Débito": "R$ {:,.2f}", "Crédito": "R$ {:,.2f}", "SD": "R$ {:,.2f}", "SC": "R$ {:,.2f}"}))
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Soma Débitos", f"R$ {df_bal['Débito'].sum():,.2f}")
         c2.metric("Soma Créditos", f"R$ {df_bal['Crédito'].sum():,.2f}")
@@ -473,32 +473,32 @@ else:
             
         m4.metric("Solvência (Caixa vs Passivo Total)", f"{solvencia:.2f}")
         
-        # --- ANÁLISE COMPARATIVA ---
+        # --- ANÁLISE COMPARATIVA FORMATADA COM R$ ---
         st.subheader("📊 Relação Dinâmica: Disponibilidades vs Obrigações (Passivos)")
         
         col_t1, col_t2 = st.columns(2)
         with col_t1:
             st.markdown("**Recursos Disponíveis para Liquidação**")
-            st.dataframe(
-                pd.DataFrame([
-                    {"Origem": "Saldo Inicial do Período", "Valor": s_ini},
-                    {"Origem": "(+) Entradas Acumuladas", "Valor": df_periodo[df_periodo['status'] == "Entrada"]['valor'].sum()},
-                    {"Origem": "(=) Disponibilidade Atual em Caixa/Bancos", "Valor": disponibilidades}
-                ]), use_container_width=True, hide_index=True
-            )
+            df_rec_disp = pd.DataFrame([
+                {"Origem": "Saldo Inicial do Período", "Valor": s_ini},
+                {"Origem": "(+) Entradas Acumuladas", "Valor": df_periodo[df_periodo['status'] == "Entrada"]['valor'].sum()},
+                {"Origem": "(=) Disponibilidade Atual em Caixa/Bancos", "Valor": disponibilidades}
+            ])
+            st.dataframe(df_rec_disp.style.format(formatter={"Valor": "R$ {:,.2f}"}), use_container_width=True, hide_index=True)
+            
         with col_t2:
             st.markdown("**Composição do Passivo Executado/Pendente**")
-            st.dataframe(
-                pd.DataFrame([
-                    {"Exigibilidade": "Passivo Circulante (Curto Prazo)", "Valor": pas_circ_total},
-                    {"Exigibilidade": "Passivo Não Circulante (Longo Prazo)", "Valor": pas_nc_total},
-                    {"Exigibilidade": "Total de Dívidas / Obrigações", "Valor": passivo_total_obrigacoes}
-                ]), use_container_width=True, hide_index=True
-            )
+            df_comp_pas = pd.DataFrame([
+                {"Exigibilidade": "Passivo Circulante (Curto Prazo)", "Valor": pas_circ_total},
+                {"Exigibilidade": "Passivo Não Circulante (Longo Prazo)", "Valor": pas_nc_total},
+                {"Exigibilidade": "Total de Dívidas / Obrigações", "Valor": passivo_total_obrigacoes}
+            ])
+            st.dataframe(df_comp_pas.style.format(formatter={"Valor": "R$ {:,.2f}"}), use_container_width=True, hide_index=True)
             
         st.divider()
         st.markdown("**Histórico Detalhado das Movimentações**")
-        st.dataframe(df_periodo[['data_lancamento', 'descricao', 'valor', 'tipo', 'status', 'justificativa']], use_container_width=True)
+        df_historico = df_periodo[['data_lancamento', 'descricao', 'valor', 'tipo', 'status', 'justificativa']].copy()
+        st.dataframe(df_historico.style.format(formatter={"valor": "R$ {:,.2f}"}), use_container_width=True, hide_index=True)
 
     elif st.session_state.menu_opcao == "⚙️ Gestão":
         if st.button("🚨 Resetar Tudo"):
@@ -506,7 +506,7 @@ else:
             st.rerun()
             
         for _, row in df_base.sort_values('data_lancamento', ascending=False).iterrows():
-            with st.expander(f"{row['data_lancamento']} | {row['descricao']} | {row['natureza']} | R$ {row['valor']}"):
+            with st.expander(f"{row['data_lancamento']} | {row['descricao']} | {row['natureza']} | R$ {row['valor']:,.2f}"):
                 c1, c2 = st.columns(2)
                 if c1.button("✏️ Editar", key=f"ed_{row['id']}"):
                     st.session_state.edit_id = row['id']
