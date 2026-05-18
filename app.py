@@ -93,7 +93,7 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
     pdf.cell(30, 7, "Valor (R$)", border=1, align="R")
     pdf.ln()
 
-    # Separação com base nos novos nomes dos grupos
+    # Separação com base nos nomes corretos dos grupos
     df_at_circ = df_per[df_per['natureza'] == 'Ativo Circulante']
     df_at_nc = df_per[df_per['natureza'] == 'Ativo Não Circulante']
     df_pass_circ = df_per[df_per['natureza'] == 'Passivo Circulante']
@@ -110,9 +110,9 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
     for c, v in agrupar_por_conta(df_at_circ):
         linhas_ativo.append((f"  {c}", v, False))
         
-    # Ativo Não Circulante
+    # Ativo Não Circulante - Rótulo corrigido aqui
     v_at_nc = total_grupo_com_sinal(df_at_nc, 'Ativo Não Circulante')
-    linhas_ativo.append(("ATIVO NÃO IMPORTANTE / NÃO CIRCULANTE", v_at_nc, True))
+    linhas_ativo.append(("ATIVO NÃO CIRCULANTE", v_at_nc, True))
     for c, v in agrupar_por_conta(df_at_nc):
         linhas_ativo.append((f"  {c}", v, False))
 
@@ -216,7 +216,6 @@ def agrupar_por_conta(df):
         c = sub[sub['tipo'] == 'Crédito']['valor'].sum()
         nat = sub['natureza'].iloc[0]
         
-        # Lógica de saldo com base nos novos grupos
         if 'Ativo' in nat or nat in ['Despesa', 'Encargos Financeiros']:
             saldo = d - c
         else:
@@ -275,14 +274,11 @@ with st.sidebar:
         idx_conta = opcoes_conta.index(reg['descricao']) if reg['descricao'] in contas_existentes else 0
         conta_sel = st.selectbox("Selecione a Conta", opcoes_conta, index=idx_conta)
         
-        # Sugestões automáticas baseadas no seu input de regras contábeis
         desc_input = st.text_input("Nome da Conta", value=reg['descricao']).upper().strip() if conta_sel == "+ Adicionar Nova Conta" else conta_sel
         data_f = st.date_input("Data", value=reg['data_lancamento'])
         
-        # OPÇÕES DO GRUPO ATUALIZADAS CONFORME SOLICITADO
         grupos = ["Ativo Circulante", "Ativo Não Circulante", "Passivo Circulante", "Passivo Não Circulante", "Patrimônio Líquido", "Receita", "Despesa", "Encargos Financeiros"]
         
-        # Auxiliar para preenchimento inteligente de novos cadastros rápidos
         idx_inicial_grupo = grupos.index(reg['natureza']) if reg['natureza'] in grupos else 0
         if conta_sel == "+ Adicionar Nova Conta" and desc_input:
             if "RECEBER" in desc_input or "CLIENTE" in desc_input: idx_inicial_grupo = grupos.index("Ativo Circulante")
