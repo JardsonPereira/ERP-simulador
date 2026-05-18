@@ -429,41 +429,84 @@ else:
     elif st.session_state.menu_opcao == "📈 DRE":
         col_d, _ = st.columns([2, 1])
         with col_d:
-            # 1. Grupo Mãe: Receitas
             st.markdown(f'<div class="dre-row" style="font-weight: bold;"><span>(+) RECEITAS</span><span>R$ {v_rec:,.2f}</span></div>', unsafe_allow_html=True)
             df_rec = df_periodo[df_periodo['natureza'] == 'Receita']
             for conta, valor in agrupar_por_conta(df_rec):
                 st.markdown(f'<div class="dre-subrow"><span>{conta}</span><span>R$ {valor:,.2f}</span></div>', unsafe_allow_html=True)
                 
-            # 2. Grupo Mãe: Despesas
             st.markdown(f'<div class="dre-row" style="font-weight: bold; margin-top: 10px;"><span>(-) DESPESAS OPERACIONAIS</span><span>(R$ {v_desp_op:,.2f})</span></div>', unsafe_allow_html=True)
             df_desp = df_periodo[df_periodo['natureza'] == 'Despesa']
             for conta, valor in agrupar_por_conta(df_desp):
                 st.markdown(f'<div class="dre-subrow"><span>{conta}</span><span>(R$ {valor:,.2f})</span></div>', unsafe_allow_html=True)
                 
-            # Subtotal EBITDA
             st.markdown(f'<div class="dre-total">(=) EBITDA: R$ {v_rec - v_desp_op:,.2f}</div>', unsafe_allow_html=True)
             
-            # 3. Grupo Mãe: Encargos Financeiros
             st.markdown(f'<div class="dre-row" style="font-weight: bold; margin-top: 10px;"><span>(-) ENCARGOS FINANCEIROS / IMPOSTOS</span><span>(R$ {v_finan:,.2f})</span></div>', unsafe_allow_html=True)
             df_fin = df_periodo[df_periodo['natureza'] == 'Encargos Financeiros']
             for conta, valor in agrupar_por_conta(df_fin):
                 st.markdown(f'<div class="dre-subrow"><span>{conta}</span><span>(R$ {valor:,.2f})</span></div>', unsafe_allow_html=True)
                 
-            # Lucro/Prejuízo Líquido
             cor = "#059669" if v_lucro >= 0 else "#dc2626"
             label_final = "(=) LUCRO LÍQUIDO" if v_lucro >= 0 else "(=) PREJUÍZO LÍQUIDO"
             st.markdown(f'<div class="dre-total" style="color:{cor}; border-top: 2px double #1e293b;">{label_final}: R$ {v_lucro:,.2f}</div>', unsafe_allow_html=True)
 
     elif st.session_state.menu_opcao == "💸 Fluxo de Caixa":
+        # --- CÁLCULOS DE LIQUIDEZ VS PASSIVO ---
+        # 1. Recursos Imediatamente Disponíveis (Caixa/Bancos do Ativo Circulante)
+        disponibilidades = s_fin  # O saldo final representa o acumulado de caixa/banco real disponível
+        
+        # 2. Obrigações Totais do Passivo (Circulante + Não Circulante) encontradas no período
+        pas_circ_total = get_saldo_total_por_natureza(df_periodo, 'Passivo Circulante')
+        pas_nc_total = get_saldo_total_por_natureza(df_periodo, 'Passivo Não Circulante')
+        passivo_total_obrigacoes = pas_circ_total + pas_nc_total
+        
+        # 3. Cálculo de Índices Contábeis Reais
+        # Liquidez Imediata = Disponibilidades / Passivo Circulante
+        liq_imediata = disponibilidades / pas_circ_total if pas_circ_total > 0 else disponibilidades
+        
+        # Solvência Geral = Disponibilidades / Passivo Total
+        solvencia = disponibilidades / passivo_total_obrigacoes if passivo_total_obrigacoes > 0 else disponibilidades
+
+        # --- EXIBIÇÃO DAS MÉTRICAS ---
         m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Saldo Inicial (Anterior)", f"R$ {s_ini:,.2f}")
-        m2.metric("Saldo Final", f"R$ {s_fin:,.2f}")
-        m3.metric("Fluxo Líquido", f"R$ {s_fin - s_ini:,.2f}")
-        t_ent, t_sai = df_periodo[df_periodo['status'] == "Entrada"]['valor'].sum(), df_periodo[df_periodo['status'] == "Pago"]['valor'].sum()
-        obrigacoes = t_sai + df_periodo[df_periodo['status'] == 'Pendente']['valor'].sum()
-        liq = (s_ini + t_ent) / obrigacoes if obrigacoes > 0 else (s_ini + t_ent)
-        m4.metric("Índice Liquidez", f"{liq:.2f}")
+        m1.metric("Saldo em Caixa (Disponível)", f"R$ {disponibilidades:,.2f}")
+        m2.metric("Obrigações Curtíssimo Prazo (Passivo Circ.)", f"R$ {pas_circ_total:,.2f}")
+        
+        # Alertas Visuais para os Indicadores de Liquidez
+        if liq_imediata >= 1.0:
+            st.sidebar.success(f"Liquidez Segura: R$ {liq_imediata:.2f} de caixa para cada R$ 1,00 de dívida CP.")
+            m3.metric("Índice Liquidez Imediata", f"{liq_imediata:.2f}", help="Capacidade de pagar o Passivo Circulante usando apenas o dinheiro em Caixa/Banco hoje.")
+        else:
+            st.sidebar.warning(f"Atenção: Caixa atual cobre apenas {liq_imediata*100:.1f}% das contas de Curto Prazo.")
+            m3.metric("Índice Liquidez Imediata", f"{liq_imediata:.2f}", delta="- Caixa Insuficiente p/ Passivo CP", delta_color="inverse")
+            
+        m4.metric("Solvência (Caixa vs Passivo Total)", f"{solvencia:.2f}", help="Relação entre o dinheiro disponível em caixa e TODAS as dívidas registradas.")
+        
+        # --- ANÁLISE COMPARATIVA ---
+        st.subheader("📊 Relação Dinâmica: Disponibilidades vs Obrigações (Passivos)")
+        
+        col_t1, col_t2 = st.columns(2)
+        with col_t1:
+            st.markdown("**Recursos Disponíveis para Liquidação**")
+            st.dataframe(
+                pd.DataFrame([
+                    {"Origem": "Saldo Inicial do Período", "Valor": s_ini},
+                    {"Origem": "(+) Entradas Acumuladas", "Valor": df_periodo[df_periodo['status'] == "Entrada"]['valor'].sum()},
+                    {"Origem": "(=) Disponibilidade Atual em Caixa/Bancos", "Valor": disponibilidades}
+                ]), use_container_width=True, hide_index=True
+            )
+        with col_t2:
+            st.markdown("**Composição do Passivo Executado/Pendente**")
+            st.dataframe(
+                pd.DataFrame([
+                    {"Exigibilidade": "Passivo Circulante (Curto Prazo)", "Valor": pas_circ_total},
+                    {"Exigibilidade": "Passivo Não Circulante (Longo Prazo)", "Valor": pas_nc_total},
+                    {"Exigibilidade": "Total de Dívidas / Obrigações", "Valor": passivo_total_obrigacoes}
+                ]), use_container_width=True, hide_index=True
+            )
+            
+        st.divider()
+        st.markdown("**Histórico Detalhado das Movimentações**")
         st.dataframe(df_periodo[['data_lancamento', 'descricao', 'valor', 'tipo', 'status', 'justificativa']], use_container_width=True)
 
     elif st.session_state.menu_opcao == "⚙️ Gestão":
