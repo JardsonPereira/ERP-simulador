@@ -16,6 +16,7 @@ if 'user' not in st.session_state: st.session_state.user = None
 if 'edit_id' not in st.session_state: st.session_state.edit_id = None
 if 'form_count' not in st.session_state: st.session_state.form_count = 0
 if 'menu_opcao' not in st.session_state: st.session_state.menu_opcao = "📊 Razonetes"
+if 'tem_perfil' not in st.session_state: st.session_state.tem_perfil = False
 
 try:
     url: str = st.secrets["SUPABASE_URL"]
@@ -32,45 +33,53 @@ def is_admin():
         return st.session_state.user.email == EMAIL_ADMIN
     return False
 
-def obter_todos_usuarios_mapeados():
-    """Busca os IDs únicos e tenta resolver os e-mails correspondentes para o filtro"""
-    mapeamento = {"Todos": "Todos"}
+def verificar_perfil(u_id):
+    """Verifica se o usuário já possui um nome cadastrado na tabela de perfis"""
     try:
-        # Busca os lançamentos para saber quais IDs existem
+        res = supabase.table("perfis").select("nome_usuario").eq("id", u_id).execute()
+        if res.data:
+            st.session_state.tem_perfil = True
+            return True
+        st.session_state.tem_perfil = False
+        return False
+    except Exception:
+        return False
+
+def obter_todos_usuarios_mapeados():
+    """Busca os nomes dos usuários na tabela perfis para alimentar o filtro do Admin"""
+    mapeamento = {"Todos os Usuários": "Todos"}
+    try:
+        # Busca a lista de perfis preenchidos no banco
+        res_perfis = supabase.table("perfis").select("id, nome_usuario").execute()
+        df_perfis = pd.DataFrame(res_perfis.data)
+        
+        # Busca também os lançamentos para garantir redundância caso alguém não tenha perfil
         res_lanc = supabase.table("lancamentos").select("user_id").execute()
         df_lanc = pd.DataFrame(res_lanc.data)
         
+        perfis_dict = {}
+        if not df_perfis.empty:
+            perfis_dict = dict(zip(df_perfis['id'], df_perfis['nome_usuario']))
+            
         if not df_lanc.empty:
             ids_unicos = df_lanc['user_id'].unique().tolist()
-            
-            # Tenta buscar a lista de usuários cadastrados no Auth do Supabase (Requer privilégios de Admin no banco)
-            try:
-                res_auth = supabase.auth.admin.list_users()
-                for u in res_auth:
-                    if u.id in ids_unicos:
-                        mapeamento[u.email] = u.id
-            except Exception:
-                # Caso a API de admin esteja restrita, mapeia o ID do próprio administrador logado para facilitar
-                for uid in ids_unicos:
-                    if uid == st.session_state.user.id:
-                        mapeamento[st.session_state.user.email] = uid
-                    else:
-                        # Para os outros, exibe as primeiras letras do ID de forma amigável
-                        mapeamento[f"Usuário ({uid[:8]}...)"] = uid
-                        
+            for uid in ids_unicos:
+                if uid in perfis_dict:
+                    mapeamento[perfis_dict[uid]] = uid
+                elif uid == st.session_state.user.id:
+                    mapeamento[f"Admin ({st.session_state.user.email})"] = uid
+                else:
+                    mapeamento[f"Sem Nome ({uid[:8]}...)"] = uid
         return mapeamento
     except Exception:
-        return {"Todos": "Todos"}
+        return {"Todos os Usuários": "Todos"}
 
 def carregar_dados(u_id, usuario_selecionado="Todos"):
     try:
-        # Se for admin e optou por ver tudo
         if is_admin() and usuario_selecionado == "Todos":
             res = supabase.table("lancamentos").select("*").execute()
-        # Se for admin e escolheu um usuário específico da lista (passando o ID correspondente)
         elif is_admin() and usuario_selecionado != "Todos":
             res = supabase.table("lancamentos").select("*").eq("user_id", usuario_selecionado).execute()
-        # Se for um usuário comum, traz estritamente apenas os dados dele
         else:
             res = supabase.table("lancamentos").select("*").eq("user_id", u_id).execute()
             
@@ -264,7 +273,7 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
             
             pdf.cell(20, 5.5, data_formatada, border=1, align="C")
             pdf.cell(50, 5.5, desc, border=1)
-            pdf.cell(30, 5.5, grupo_nome, border=1)  # Rigorosamente corrigido aqui
+            pdf.cell(30, 5.5, grupo_nome, border=1)
             pdf.cell(20, 5.5, r['tipo'], border=1, align="C")
             pdf.cell(25, 5.5, f"R$ {r['valor']:,.2f}", border=1, align="R")
             pdf.cell(45, 5.5, just, border=1)
@@ -311,8 +320,32 @@ if st.session_state.user is None:
             st.rerun()
         except: st.sidebar.error("E-mail ou senha incorretos.")
     elif menu == "Criar Conta" and st.sidebar.button("Cadastrar"):
-        supabase.auth.sign_up({"email": email, "password": senha})
-        st.sidebar.success("Conta criada!")
+        try:
+            supabase.auth.sign_up({"email": email, "password": senha})
+            st.sidebar.success("Conta criada! Faça o login agora.")
+        except Exception as e:
+            st.sidebar.error(f"Erro ao cadastrar: {e}")
+    st.stop()
+
+# --- FORÇAR COMPLEMENTO DE CADASTRO (NOME DE USUÁRIO) ---
+# Se o usuário não tiver perfil, ele fica bloqueado nesta tela obrigatória até digitar o nome
+if not verificar_perfil(st.session_state.user.id):
+    st.title("📋 Complete o seu Cadastro")
+    st.write("Para continuar acessando o sistema, insira o seu nome ou o nome da sua empresa para identificação.")
+    
+    with st.form("form_completar_cadastro"):
+        nome_input = st.text_input("Nome Corporativo / Usuário").upper().strip()
+        if st.form_submit_button("Salvar e Acessar"):
+            if len(nome_input) < 3:
+                st.error("Insira um nome válido de no mínimo 3 caracteres.")
+            else:
+                try:
+                    supabase.table("perfis").insert({"id": st.session_state.user.id, "nome_usuario": nome_input}).execute()
+                    st.session_state.tem_perfil = True
+                    st.success("Perfil configurado com sucesso!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Erro ao salvar o nome: {e}")
     st.stop()
 
 # --- PROCESSAMENTO LATERAL ---
@@ -323,20 +356,21 @@ with st.sidebar:
         
     if st.button("Sair"):
         st.session_state.user = None
+        st.session_state.tem_perfil = False
         st.rerun()
     st.divider()
     
-    # Injeta o controle de filtro dinâmico exibindo E-MAILS se for administrador
+    # Injeta o controle de filtro dinâmico exibindo os NOMES DOS USUÁRIOS para o admin
     id_usuario_filtrado = "Todos"
     if is_admin():
         st.header("🔍 Painel Admin")
         dict_usuarios = obter_todos_usuarios_mapeados()
         
-        # O selectbox mostra os E-mails (as chaves do dicionário)
-        email_selecionado = st.selectbox("Filtrar lançamentos de:", list(dict_usuarios.keys()))
+        # O selectbox mostra os nomes amigáveis salvos na tabela 'perfis'
+        nome_selecionado = st.selectbox("Filtrar lançamentos de:", list(dict_usuarios.keys()))
         
-        # Captura o ID correspondente àquele e-mail para usar na query do banco
-        id_usuario_filtrado = dict_usuarios[email_selecionado]
+        # Captura o ID correspondente àquele nome para fazer o filtro no banco
+        id_usuario_filtrado = dict_usuarios[nome_selecionado]
         st.divider()
     
     # Carrega dados temporários para o formulário baseados no filtro de contexto do admin
@@ -392,7 +426,6 @@ with st.sidebar:
             st.rerun()
 
 # --- CARREGAMENTO OFICIAL ---
-# Usa a seleção do Admin mapeada para carregar o dashboard
 df_base = carregar_dados(st.session_state.user.id, id_usuario_filtrado if 'id_usuario_filtrado' in locals() else "Todos")
 
 # --- CSS ---
@@ -532,7 +565,6 @@ else:
         liq_imediata = disponibilidades / pas_circ_total if pas_circ_total > 0 else disponibilidades
         solvencia = disponibilidades / passivo_total_obrigacoes if passivo_total_obrigacoes > 0 else disponibilidades
 
-        # --- EXIBIÇÃO DAS MÉTRICAS ---
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("Saldo em Caixa (Disponível)", f"R$ {disponibilidades:,.2f}")
         m2.metric("Obrigações Curtíssimo Prazo (Passivo Circ.)", f"R$ {pas_circ_total:,.2f}")
@@ -546,9 +578,7 @@ else:
             
         m4.metric("Solvência (Caixa vs Passivo Total)", f"{solvencia:.2f}")
         
-        # --- ANÁLISE COMPARATIVA FORMATADA COM R$ ---
         st.subheader("📊 Relação Dinâmica: Disponibilidades vs Obrigações (Passivos)")
-        
         col_t1, col_t2 = st.columns(2)
         with col_t1:
             st.markdown("**Recursos Disponíveis para Liquidação**")
@@ -575,7 +605,6 @@ else:
 
     elif st.session_state.menu_opcao == "⚙️ Gestão":
         if st.button("🚨 Resetar Tudo"):
-            # Se for admin visualizando "Todos", impede o reset acidental de toda a base global
             if is_admin() and id_usuario_filtrado == "Todos":
                 st.error("Não é permitido resetar a base global de uma só vez no modo 'Todos'. Selecione um usuário específico para resetar.")
             else:
