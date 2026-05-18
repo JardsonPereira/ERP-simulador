@@ -32,23 +32,42 @@ def is_admin():
         return st.session_state.user.email == EMAIL_ADMIN
     return False
 
-def obter_todos_usuarios():
-    """Busca a lista de IDs únicos de usuários com lançamentos para alimentar o filtro do Admin"""
+def obter_todos_usuarios_mapeados():
+    """Busca os IDs únicos e tenta resolver os e-mails correspondentes para o filtro"""
+    mapeamento = {"Todos": "Todos"}
     try:
-        res = supabase.table("lancamentos").select("user_id").execute()
-        temp_df = pd.DataFrame(res.data)
-        if not temp_df.empty:
-            return sorted(temp_df['user_id'].unique().tolist())
-        return []
+        # Busca os lançamentos para saber quais IDs existem
+        res_lanc = supabase.table("lancamentos").select("user_id").execute()
+        df_lanc = pd.DataFrame(res_lanc.data)
+        
+        if not df_lanc.empty:
+            ids_unicos = df_lanc['user_id'].unique().tolist()
+            
+            # Tenta buscar a lista de usuários cadastrados no Auth do Supabase (Requer privilégios de Admin no banco)
+            try:
+                res_auth = supabase.auth.admin.list_users()
+                for u in res_auth:
+                    if u.id in ids_unicos:
+                        mapeamento[u.email] = u.id
+            except Exception:
+                # Caso a API de admin esteja restrita, mapeia o ID do próprio administrador logado para facilitar
+                for uid in ids_unicos:
+                    if uid == st.session_state.user.id:
+                        mapeamento[st.session_state.user.email] = uid
+                    else:
+                        # Para os outros, exibe as primeiras letras do ID de forma amigável
+                        mapeamento[f"Usuário ({uid[:8]}...)"] = uid
+                        
+        return mapeamento
     except Exception:
-        return []
+        return {"Todos": "Todos"}
 
 def carregar_dados(u_id, usuario_selecionado="Todos"):
     try:
         # Se for admin e optou por ver tudo
         if is_admin() and usuario_selecionado == "Todos":
             res = supabase.table("lancamentos").select("*").execute()
-        # Se for admin e escolheu um usuário específico da lista
+        # Se for admin e escolheu um usuário específico da lista (passando o ID correspondente)
         elif is_admin() and usuario_selecionado != "Todos":
             res = supabase.table("lancamentos").select("*").eq("user_id", usuario_selecionado).execute()
         # Se for um usuário comum, traz estritamente apenas os dados dele
@@ -164,7 +183,7 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
         
     # Ativo Não Circulante
     v_at_nc = total_grupo_com_sinal(df_at_nc, 'Ativo Não Circulante')
-    linhas_ativo.append(("ATIVO NÃO CIRCULANTE", v_at_nc, True))
+    linhas_ativo.append(("ATIVO NÃO CONTINUANTE", v_at_nc, True))
     for c, v in agrupar_por_conta(df_at_nc):
         linhas_ativo.append((f"  {c}", v, False))
 
@@ -245,7 +264,7 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
             
             pdf.cell(20, 5.5, data_formatada, border=1, align="C")
             pdf.cell(50, 5.5, desc, border=1)
-            pdf.cell(30, 5.5, grupo_nome, border=1)
+            pdf.cell(30, 5.5, group_nome, border=1)
             pdf.cell(20, 5.5, r['tipo'], border=1, align="C")
             pdf.cell(25, 5.5, f"R$ {r['valor']:,.2f}", border=1, align="R")
             pdf.cell(45, 5.5, just, border=1)
@@ -307,16 +326,21 @@ with st.sidebar:
         st.rerun()
     st.divider()
     
-    # Injeta o controle de filtro dinâmico se for administrador
-    usuario_filtro = "Todos"
+    # Injeta o controle de filtro dinâmico exibindo E-MAILS se for administrador
+    id_usuario_filtrado = "Todos"
     if is_admin():
         st.header("🔍 Painel Admin")
-        opcoes_usuarios = ["Todos"] + obter_todos_usuarios()
-        usuario_filtro = st.selectbox("Filtrar lançamentos de:", opcoes_usuarios)
+        dict_usuarios = obter_todos_usuarios_mapeados()
+        
+        # O selectbox mostra os E-mails (as chaves do dicionário)
+        email_selecionado = st.selectbox("Filtrar lançamentos de:", list(dict_usuarios.keys()))
+        
+        # Captura o ID correspondente àquele e-mail para usar na query do banco
+        id_usuario_filtrado = dict_usuarios[email_selecionado]
         st.divider()
     
-    # Carrega dados temporários para o formulário baseados no filtro de contexto
-    df_temp = carregar_dados(st.session_state.user.id, usuario_filtro)
+    # Carrega dados temporários para o formulário baseados no filtro de contexto do admin
+    df_temp = carregar_dados(st.session_state.user.id, id_usuario_filtrado)
     
     if st.session_state.edit_id and not df_temp.empty:
         st.header("📝 Editar Lançamento")
@@ -368,8 +392,8 @@ with st.sidebar:
             st.rerun()
 
 # --- CARREGAMENTO OFICIAL ---
-# Usa a seleção do Admin da barra lateral para carregar a base oficial do dashboard
-df_base = carregar_dados(st.session_state.user.id, usuario_filtro if 'usuario_filtro' in locals() else "Todos")
+# Usa a seleção do Admin mapeada para carregar o dashboard
+df_base = carregar_dados(st.session_state.user.id, id_usuario_filtrado if 'id_usuario_filtrado' in locals() else "Todos")
 
 # --- CSS ---
 st.markdown("""<style>
@@ -552,10 +576,10 @@ else:
     elif st.session_state.menu_opcao == "⚙️ Gestão":
         if st.button("🚨 Resetar Tudo"):
             # Se for admin visualizando "Todos", impede o reset acidental de toda a base global
-            if is_admin() and usuario_filtro == "Todos":
+            if is_admin() and id_usuario_filtrado == "Todos":
                 st.error("Não é permitido resetar a base global de uma só vez no modo 'Todos'. Selecione um usuário específico para resetar.")
             else:
-                alvo_reset = st.session_state.user.id if not is_admin() else usuario_filtro
+                alvo_reset = st.session_state.user.id if not is_admin() else id_usuario_filtrado
                 supabase.table("lancamentos").delete().eq("user_id", alvo_reset).execute()
                 st.rerun()
             
