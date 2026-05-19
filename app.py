@@ -226,6 +226,7 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
         linhas_passivo_pl.append((f"  {c}", v, False))
         
     label_lucro_ex = "  Lucros do Exercício" if v_lucro >= 0 else "  Prejuízos Acumulados"
+    # CORREÇÃO DA TUPLA: Adicionado o terceiro argumento (is_bold=False) para evitar o erro de unpack
     linhas_passivo_pl.append((label_lucro_ex, v_lucro, False))
 
     max_linhas = max(len(linhas_ativo), len(linhas_passivo_pl))
@@ -242,7 +243,7 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
             pdf.cell(30, 5.5, "", border=1)
 
         if index < len(linhas_passivo_pl):
-            desc_pas, val_pas, is_bold_pas = lines_passivo_pl[index]
+            desc_pas, val_pas, is_bold_pas = linhas_passivo_pl[index]
             pdf.set_font("Arial", "B" if is_bold_pas else "", 8)
             pdf.cell(65, 5.5, clean_str(desc_pas), border=1)
             pdf.cell(30, 5.5, f"{val_pas:,.2f}" if val_pas is not None else "", border=1, align="R")
@@ -425,10 +426,8 @@ with st.sidebar:
             just_input = st.text_area("Justificativa", value=reg['justificativa'])
             
             if st.form_submit_button("Confirmar"):
-                # Define dinamicamente o dono do lançamento baseado na sua seleção do Admin
                 user_dono = reg.get('user_id', id_usuario_filtrado) if st.session_state.edit_id else id_usuario_filtrado
                 
-                # Se ainda estiver como "Todos" por erro forçado, salva no seu próprio ID de Admin
                 if user_dono == "Todos":
                     user_dono = st.session_state.user.id
                     
