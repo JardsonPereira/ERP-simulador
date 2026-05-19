@@ -327,14 +327,6 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
 
     return pdf.output()
 
-def get_saldo_total_por_natureza(df, nat):
-    if df is None or df.empty or 'natureza' not in df.columns or 'tipo' not in df.columns: return 0.0
-    d = df[(df['natureza'] == nat) & (df['tipo'] == 'Débito')]['valor'].sum()
-    c = df[(df['natureza'] == nat) & (df['tipo'] == 'Crédito')]['valor'].sum()
-    if 'Ativo' in nat or nat in ['Despesa', 'Encargos Financeiros']:
-        return d - c
-    return c - d
-
 # --- AUTENTICAÇÃO ---
 if st.session_state.user is None:
     st.sidebar.title("🔐 Acesso")
@@ -355,7 +347,8 @@ if st.session_state.user is None:
             st.sidebar.error(f"Erro ao cadastrar: {e}")
     st.stop()
 
-# --- FORÇAR COMPLEMENTO DE CADASTRO ---
+# --- BLINDAGEM OBLIGATÓRIA: CADASTRO DE PERFIL (NOME DO USUÁRIO) ---
+# Se o usuário está logado mas não possui o perfil mapeado no banco, trava o fluxo e exibe o formulário principal
 if not verificar_perfil(st.session_state.user.id):
     st.title("📋 Complete o seu Cadastro")
     st.write("Para continuar acessando o sistema, insira o seu nome ou o nome da sua empresa para identificação.")
@@ -408,7 +401,7 @@ with st.sidebar:
         st.header("📝 Editar Lançamento")
         df_edicao = carregar_dados(st.session_state.user.id, id_usuario_filtrado)
         linhas_para_editar = df_edicao[df_edicao['id'] == st.session_state.edit_id] if not df_edicao.empty else pd.DataFrame()
-        if not líneas_para_editar.empty:
+        if not linhas_para_editar.empty:
             reg = linhas_para_editar.iloc[0]
         else:
             reg = {"descricao": "", "natureza": "Ativo Circulante", "tipo": "Débito", "valor": 0.0, "justificativa": "", "status": "Pago", "data_lancamento": datetime.now().date()}
@@ -429,7 +422,6 @@ with st.sidebar:
             idx_conta = opcoes_conta.index(reg['descricao']) if reg['descricao'] in contas_existentes else 0
             conta_sel = st.selectbox("Selecione a Conta", opcoes_conta, index=idx_conta)
             
-            # PROTEÇÃO COM KEY ESTÁTICA DO STREAMLIT: Evita que o campo limpe o texto ao digitar
             if conta_sel == "+ Adicionar Nova Conta":
                 desc_input = st.text_input("Nome da Nova Conta", key="nome_nova_conta_input_admin").upper().strip()
             else:
