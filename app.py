@@ -18,7 +18,7 @@ if 'form_count' not in st.session_state: st.session_state.form_count = 0
 if 'menu_opcao' not in st.session_state: st.session_state.menu_opcao = "📊 Razonetes"
 if 'tem_perfil' not in st.session_state: st.session_state.tem_perfil = False
 
-# CORREÇÃO CRÍTICA: Inicialização persistente do filtro usando session_state para não resetar no rerun
+# Inicialização persistente do filtro no session_state
 if 'filtro_admin' not in st.session_state:
     if st.session_state.user and st.session_state.user.email == EMAIL_ADMIN:
         st.session_state.filtro_admin = "Todos"
@@ -60,7 +60,6 @@ def obter_todos_usuarios_mapeados():
     """Busca os nomes dos usuários na tabela perfis para alimentar o filtro do Admin"""
     mapeamento = {"Todos os Usuários": "Todos"}
     
-    # Garante o Admin sempre ativo na listagem de seleção
     if st.session_state.user:
         mapeamento[f"Meu Usuário (Admin)"] = st.session_state.user.id
 
@@ -114,7 +113,6 @@ def carregar_dados(u_id, usuario_selecionado="Todos"):
         return pd.DataFrame(columns=['descricao', 'natureza', 'tipo', 'valor', 'justificativa', 'status', 'data_lancamento', 'user_id'])
 
 def obter_contas_do_usuario(u_id, usuario_selecionado):
-    """Função isolada e segura para buscar as contas de um escopo sem quebrar a renderização lateral"""
     try:
         alvo = u_id if usuario_selecionado == "Todos" else usuario_selecionado
         res = supabase.table("lancamentos").select("descricao").eq("user_id", alvo).execute()
@@ -316,7 +314,7 @@ def agrupar_por_conta(df):
         else:
             saldo = c - d
         linhas.append((conta.title(), abs(saldo)))
-    return linhas
+    return lines
 
 def total_grupo_com_sinal(df, nat):
     if df.empty: return 0.0
@@ -364,7 +362,7 @@ if not verificar_perfil(st.session_state.user.id):
                     st.rerun()
                 except Exception as e:
                     st.error(f"Erro ao salvar o nome: {e}")
-    st.sidebar.stop()
+    st.stop()
 
 # --- PROCESSAMENTO LATERAL ---
 with st.sidebar:
@@ -383,7 +381,6 @@ with st.sidebar:
         st.header("🔍 Painel Admin")
         dict_usuarios = obter_todos_usuarios_mapeados()
         
-        # Mapeia o índice atual do session_state de forma limpa
         lista_nomes_usuarios = list(dict_usuarios.keys())
         lista_ids_usuarios = list(dict_usuarios.values())
         idx_atual_filtro = lista_ids_usuarios.index(st.session_state.filtro_admin) if st.session_state.filtro_admin in lista_ids_usuarios else 0
@@ -393,10 +390,9 @@ with st.sidebar:
         id_usuario_filtrado = st.session_state.filtro_admin
         st.sidebar.divider()
     
-    # BUSCA PROTEGIDA: Obtém a lista de contas usando a função de escopo isolado
+    # BUSCA PROTEGIDA
     contas_existentes = obter_contas_do_usuario(st.session_state.user.id, id_usuario_filtrado)
     
-    # --- FORMULÁRIO COMPACTO COM CHAVE DINÂMICA ---
     if st.session_state.edit_id:
         st.header("📝 Editar Lançamento")
         df_edicao = carregar_dados(st.session_state.user.id, id_usuario_filtrado)
@@ -414,21 +410,24 @@ with st.sidebar:
         st.header("➕ Novo Lançamento")
         reg = {"descricao": "", "natureza": "Ativo Circulante", "tipo": "Débito", "valor": 0.0, "justificativa": "", "status": "Pago", "data_lancamento": datetime.now().date()}
 
-    # Renderização garantida: Chave dinâmica limpa o cache cruzado do Streamlit de forma absoluta
+    # O FORMULÁRIO COM FLUXO ESTRUTURADO SEM CURTO-CIRCUITO DE COMPONENTE
     with st.form(key=f"form_sidebar_{id_usuario_filtrado}_{st.session_state.form_count}"):
+        
+        # CORREÇÃO DEFINITIVA: Se a base estiver limpa (como no Admin inicial), pulamos a montagem do selectbox truncado
         if contas_existentes:
             opcoes_conta = ["+ Adicionar Nova Conta"] + contas_existentes
             idx_conta = opcoes_conta.index(reg['descricao']) if reg['descricao'] in contas_existentes else 0
             conta_sel = st.selectbox("Selecione a Conta", opcoes_conta, index=idx_conta)
+            
+            if conta_sel == "+ Adicionar Nova Conta":
+                desc_input = st.text_input("Nome da Nova Conta", value="").upper().strip()
+            else:
+                desc_input = conta_sel
         else:
-            opcoes_conta = ["+ Adicionar Nova Conta"]
-            conta_sel = st.selectbox("Selecione a Conta", opcoes_conta, index=0)
-        
-        # BLINDAGEM DO INPUT: Remove o travamento estático do Streamlit usando uma chave própria interna do fragmento
-        if conta_sel == "+ Adicionar Nova Conta":
-            desc_input = st.text_input("Nome da Nova Conta", key="nova_conta_input_admin").upper().strip()
-        else:
-            desc_input = conta_sel
+            # Caso o Admin ou Aluno não possua nenhuma conta criada, exibe direto o input de texto estático
+            st.info("ℹ️ Nenhuma conta cadastrada. Crie a sua primeira abaixo:")
+            desc_input = st.text_input("Nome da Nova Conta", value="").upper().strip()
+            conta_sel = "+ Adicionar Nova Conta"
             
         data_f = st.date_input("Data", value=reg['data_lancamento'])
         
@@ -455,18 +454,21 @@ with st.sidebar:
         botao_confirmar = st.form_submit_button("Confirmar", disabled=is_disabled)
         
         if botao_confirmar:
-            user_dono = id_usuario_filtrado
-            if user_dono == "Todos":
-                user_dono = st.session_state.user.id
-                
-            payload = {"user_id": user_dono, "descricao": desc_input, "natureza": nat, "tipo": tipo, "valor": valor, "justificativa": just_input, "status": status_pag, "data_lancamento": str(data_f)}
-            if st.session_state.edit_id: 
-                supabase.table("lancamentos").update(payload).eq("id", st.session_state.edit_id).execute()
-            else: 
-                supabase.table("lancamentos").insert(payload).execute()
-            st.session_state.edit_id = None
-            st.session_state.form_count += 1
-            st.rerun()
+            if not desc_input:
+                st.error("Por favor, preencha o nome da conta.")
+            else:
+                user_dono = id_usuario_filtrado
+                if user_dono == "Todos":
+                    user_dono = st.session_state.user.id
+                    
+                payload = {"user_id": user_dono, "descricao": desc_input, "natureza": nat, "tipo": tipo, "valor": valor, "justificativa": just_input, "status": status_pag, "data_lancamento": str(data_f)}
+                if st.session_state.edit_id: 
+                    supabase.table("lancamentos").update(payload).eq("id", st.session_state.edit_id).execute()
+                else: 
+                    supabase.table("lancamentos").insert(payload).execute()
+                st.session_state.edit_id = None
+                st.session_state.form_count += 1
+                st.rerun()
 
 # --- CARREGAMENTO OFICIAL ---
 df_base = carregar_dados(st.session_state.user.id, id_usuario_filtrado)
