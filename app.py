@@ -58,7 +58,7 @@ def obter_todos_usuarios_mapeados():
     """Busca os nomes dos usuários na tabela perfis para alimentar o filtro do Admin"""
     mapeamento = {"Todos os Usuários": "Todos"}
     
-    # GARANTIA: Insere o Administrador diretamente para que ele sempre apareça na lista de seleção
+    # Insere o Administrador diretamente para que ele sempre apareça na lista de seleção
     if st.session_state.user:
         mapeamento[f"Admin ({st.session_state.user.email})"] = st.session_state.user.id
 
@@ -76,7 +76,6 @@ def obter_todos_usuarios_mapeados():
         if not df_lanc.empty and 'user_id' in df_lanc.columns:
             ids_unicos = df_lanc['user_id'].unique().tolist()
             for uid in ids_unicos:
-                # Se o ID for do admin, já foi adicionado acima, então pulamos para evitar duplicidade
                 if uid == st.session_state.user.id:
                     continue
                 if uid in perfis_dict:
@@ -106,9 +105,12 @@ def carregar_dados(u_id, usuario_selecionado="Todos"):
                 'Ativo': 'Ativo Circulante',
                 'Passivo': 'Passivo Circulante'
             })
-        return temp_df
+            return temp_df
+        else:
+            # Blindagem: Se não houver dados, retorna um esqueleto com a coluna necessária
+            return pd.DataFrame(columns=['descricao', 'natureza', 'tipo', 'valor', 'justificativa', 'status', 'data_lancamento'])
     except Exception: 
-        return pd.DataFrame()
+        return pd.DataFrame(columns=['descricao', 'natureza', 'tipo', 'valor', 'justificativa', 'status', 'data_lancamento'])
 
 def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_pl, v_rec_total, v_desp_total, v_ebitda, v_finan_total, v_lucro):
     pdf = FPDF()
@@ -405,7 +407,7 @@ with st.sidebar:
             reg = {"descricao": "", "natureza": "Ativo Circulante", "tipo": "Débito", "valor": 0.0, "justificativa": "", "status": "Pago", "data_lancamento": datetime.now().date()}
 
         with st.form(key=f"contabil_form_{st.session_state.form_count}"):
-            contas_existentes = sorted(df_temp['descricao'].unique().tolist()) if not df_temp.empty else []
+            contas_existentes = sorted(df_temp['descricao'].dropna().unique().tolist()) if not df_temp.empty else []
             opcoes_conta = ["+ Adicionar Nova Conta"] + contas_existentes
             idx_conta = opcoes_conta.index(reg['descricao']) if reg['descricao'] in contas_existentes else 0
             conta_sel = st.selectbox("Selecione a Conta", opcoes_conta, index=idx_conta)
@@ -475,23 +477,28 @@ df_periodo = df_base[(df_base['data_lancamento'] >= data_ini) & (df_base['data_l
 def get_caixa_acumulado(data_limite):
     if df_base.empty: return 0.0
     sub = df_base[df_base['data_lancamento'] <= data_limite]
-    return sub[sub['status'] == "Entrada"]['valor'].sum() - sub[sub['status'] == "Pago"]['valor'].sum()
+    if 'status' in sub.columns and 'valor' in sub.columns:
+        return sub[sub['status'] == "Entrada"]['valor'].sum() - sub[sub['status'] == "Pago"]['valor'].sum()
+    return 0.0
 
 s_ini = get_caixa_acumulado(data_ini - timedelta(days=1))
 s_fin = get_caixa_acumulado(data_fim)
 
 # --- CÁLCULOS TÉCNICOS ADAPTADOS ---
 def get_saldo_total_por_natureza(df, nat):
-    if df.empty: return 0.0
+    if df.empty or 'natureza' not in df.columns or 'tipo' not in df.columns: return 0.0
     d = df[(df['natureza'] == nat) & (df['tipo'] == 'Débito')]['valor'].sum()
     c = df[(df['natureza'] == nat) & (df['tipo'] == 'Crédito')]['valor'].sum()
     if 'Ativo' in nat or nat in ['Despesa', 'Encargos Financeiros']:
         return d - c
     return c - d
 
-v_rec = df_periodo[(df_periodo['natureza'] == 'Receita') & (df_periodo['tipo'] == 'Crédito')]['valor'].sum()
-v_desp_op = df_periodo[(df_periodo['natureza'] == 'Despesa') & (df_periodo['tipo'] == 'Débito')]['valor'].sum()
-v_finan = df_periodo[(df_periodo['natureza'] == 'Encargos Financeiros') & (df_periodo['tipo'] == 'Débito')]['valor'].sum()
+if not df_periodo.empty and 'natureza' in df_periodo.columns and 'tipo' in df_periodo.columns:
+    v_rec = df_periodo[(df_periodo['natureza'] == 'Receita') & (df_periodo['tipo'] == 'Crédito')]['valor'].sum()
+    v_desp_op = df_periodo[(df_periodo['natureza'] == 'Despesa') & (df_periodo['tipo'] == 'Débito')]['valor'].sum()
+    v_finan = df_periodo[(df_periodo['natureza'] == 'Encargos Financeiros') & (df_periodo['tipo'] == 'Débito')]['valor'].sum()
+else:
+    v_rec, v_desp_op, v_finan = 0.0, 0.0, 0.0
 v_lucro = v_rec - v_desp_op - v_finan
 
 v_at_total = get_saldo_total_por_natureza(df_periodo, 'Ativo Circulante') + get_saldo_total_por_natureza(df_periodo, 'Ativo Não Circulante')
@@ -510,7 +517,7 @@ if df_periodo.empty and st.session_state.menu_opcao != "⚙️ Gestão":
 else:
     if st.session_state.menu_opcao == "📊 Razonetes":
         for grupo in ["Ativo Circulante", "Ativo Não Circulante", "Passivo Circulante", "Passivo Não Circulante", "Patrimônio Líquido", "Receita", "Despesa", "Encargos Financeiros"]:
-            df_g = df_periodo[df_periodo['natureza'] == grupo]
+            df_g = df_periodo[df_periodo['natureza'] == grupo] if not df_periodo.empty and 'natureza' in df_periodo.columns else pd.DataFrame()
             if not df_g.empty:
                 st.subheader(grupo)
                 cols = st.columns(3)
@@ -536,35 +543,36 @@ else:
 
     elif st.session_state.menu_opcao == "🧾 Balancete":
         bal_data = []
-        for conta in sorted(df_periodo['descricao'].unique()):
-            df_c = df_periodo[df_periodo['descricao'] == conta]
-            d, c = df_c[df_c['tipo']=='Débito']['valor'].sum(), df_c[df_c['tipo']=='Crédito']['valor'].sum()
-            bal_data.append({"Conta": conta, "Grupo": df_c['natureza'].iloc[0], "Débito": d, "Crédito": c, "SD": d-c if d>c else 0, "SC": c-d if c>d else 0})
-        df_bal = pd.DataFrame(bal_data)
+        if not df_periodo.empty and 'descricao' in df_periodo.columns:
+            for conta in sorted(df_periodo['descricao'].unique()):
+                df_c = df_periodo[df_periodo['descricao'] == conta]
+                d, c = df_c[df_c['tipo']=='Débito']['valor'].sum(), df_c[df_c['tipo']=='Crédito']['valor'].sum()
+                bal_data.append({"Conta": conta, "Grupo": df_c['natureza'].iloc[0], "Débito": d, "Crédito": c, "SD": d-c if d>c else 0, "SC": c-d if c>d else 0})
+        df_bal = pd.DataFrame(bal_data) if bal_data else pd.DataFrame(columns=["Conta", "Grupo", "Débito", "Crédito", "SD", "SC"])
         st.table(df_bal.style.format(formatter={"Débito": "R$ {:,.2f}", "Crédito": "R$ {:,.2f}", "SD": "R$ {:,.2f}", "SC": "R$ {:,.2f}"}))
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Soma Débitos", f"R$ {df_bal['Débito'].sum():,.2f}")
-        c2.metric("Soma Créditos", f"R$ {df_bal['Crédito'].sum():,.2f}")
-        c3.metric("Total Devedor (SD)", f"R$ {df_bal['SD'].sum():,.2f}")
-        c4.metric("Total Credor (SC)", f"R$ {df_bal['SC'].sum():,.2f}")
+        c1.metric("Soma Débitos", f"R$ {df_bal['Débito'].sum() if not df_bal.empty else 0:,.2f}")
+        c2.metric("Soma Créditos", f"R$ {df_bal['Crédito'].sum() if not df_bal.empty else 0:,.2f}")
+        c3.metric("Total Devedor (SD)", f"R$ {df_bal['SD'].sum() if not df_bal.empty else 0:,.2f}")
+        c4.metric("Total Credor (SC)", f"R$ {df_bal['SC'].sum() if not df_bal.empty else 0:,.2f}")
 
     elif st.session_state.menu_opcao == "📈 DRE":
         col_d, _ = st.columns([2, 1])
         with col_d:
             st.markdown(f'<div class="dre-row" style="font-weight: bold;"><span>(+) RECEITAS</span><span>R$ {v_rec:,.2f}</span></div>', unsafe_allow_html=True)
-            df_rec = df_periodo[df_periodo['natureza'] == 'Receita']
+            df_rec = df_periodo[df_periodo['natureza'] == 'Receita'] if not df_periodo.empty and 'natureza' in df_periodo.columns else pd.DataFrame()
             for conta, valor in agrupar_por_conta(df_rec):
                 st.markdown(f'<div class="dre-subrow"><span>{conta}</span><span>R$ {valor:,.2f}</span></div>', unsafe_allow_html=True)
                 
             st.markdown(f'<div class="dre-row" style="font-weight: bold; margin-top: 10px;"><span>(-) DESPESAS OPERACIONAIS</span><span>(R$ {v_desp_op:,.2f})</span></div>', unsafe_allow_html=True)
-            df_desp = df_periodo[df_periodo['natureza'] == 'Despesa']
+            df_desp = df_periodo[df_periodo['natureza'] == 'Despesa'] if not df_periodo.empty and 'natureza' in df_periodo.columns else pd.DataFrame()
             for conta, valor in agrupar_por_conta(df_desp):
                 st.markdown(f'<div class="dre-subrow"><span>{conta}</span><span>(R$ {valor:,.2f})</span></div>', unsafe_allow_html=True)
                 
             st.markdown(f'<div class="dre-total">(=) EBITDA: R$ {v_rec - v_desp_op:,.2f}</div>', unsafe_allow_html=True)
             
             st.markdown(f'<div class="dre-row" style="font-weight: bold; margin-top: 10px;"><span>(-) ENCARGOS FINANCEIROS / IMPOSTOS</span><span>(R$ {v_finan:,.2f})</span></div>', unsafe_allow_html=True)
-            df_fin = df_periodo[df_periodo['natureza'] == 'Encargos Financeiros']
+            df_fin = df_periodo[df_periodo['natureza'] == 'Encargos Financeiros'] if not df_periodo.empty and 'natureza' in df_periodo.columns else pd.DataFrame()
             for conta, valor in agrupar_por_conta(df_fin):
                 st.markdown(f'<div class="dre-subrow"><span>{conta}</span><span>(R$ {valor:,.2f})</span></div>', unsafe_allow_html=True)
                 
@@ -600,7 +608,7 @@ else:
             st.markdown("**Recursos Disponíveis para Liquidação**")
             df_rec_disp = pd.DataFrame([
                 {"Origem": "Saldo Inicial do Período", "Valor": s_ini},
-                {"Origem": "(+) Entradas Acumuladas", "Valor": df_periodo[df_periodo['status'] == "Entrada"]['valor'].sum()},
+                {"Origem": "(+) Entradas Acumuladas", "Valor": df_periodo[df_periodo['status'] == "Entrada"]['valor'].sum() if not df_periodo.empty and 'status' in df_periodo.columns else 0.0},
                 {"Origem": "(=) Disponibilidade Atual em Caixa/Bancos", "Valor": disponibilidades}
             ])
             st.dataframe(df_rec_disp.style.format(formatter={"Valor": "R$ {:,.2f}"}), use_container_width=True, hide_index=True)
@@ -616,8 +624,11 @@ else:
             
         st.divider()
         st.markdown("**Histórico Detalhado das Movimentações**")
-        df_historico = df_periodo[['data_lancamento', 'descricao', 'valor', 'tipo', 'status', 'justificativa']].copy()
-        st.dataframe(df_historico.style.format(formatter={"valor": "R$ {:,.2f}"}), use_container_width=True, hide_index=True)
+        if not df_periodo.empty and all(col in df_periodo.columns for col in ['data_lancamento', 'descricao', 'valor', 'tipo', 'status', 'justificativa']):
+            df_historico = df_periodo[['data_lancamento', 'descricao', 'valor', 'tipo', 'status', 'justificativa']].copy()
+        else:
+            df_historico = pd.DataFrame(columns=['data_lancamento', 'descricao', 'valor', 'tipo', 'status', 'justificativa'])
+        st.dataframe(df_historico.style.format(formatter={"valor": "R$ {:,.2f}"} if not df_historico.empty else None), use_container_width=True, hide_index=True)
 
     elif st.session_state.menu_opcao == "⚙️ Gestão":
         if st.button("🚨 Resetar Tudo"):
@@ -628,12 +639,13 @@ else:
                 supabase.table("lancamentos").delete().eq("user_id", alvo_reset).execute()
                 st.rerun()
             
-        for _, row in df_base.sort_values('data_lancamento', ascending=False).iterrows():
-            with st.expander(f"{row['data_lancamento']} | {row['descricao']} | {row['natureza']} | R$ {row['valor']:,.2f}"):
-                c1, c2 = st.columns(2)
-                if c1.button("✏️ Editar", key=f"ed_{row['id']}"):
-                    st.session_state.edit_id = row['id']
-                    st.rerun()
-                if c2.button("🗑️ Excluir", key=f"ex_{row['id']}"):
-                    supabase.table("lancamentos").delete().eq("id", row['id']).execute()
-                    st.rerun()
+        if not df_base.empty and 'data_lancamento' in df_base.columns:
+            for _, row in df_base.sort_values('data_lancamento', ascending=False).iterrows():
+                with st.expander(f"{row['data_lancamento']} | {row['descricao']} | {row['natureza']} | R$ {row['valor']:,.2f}"):
+                    c1, c2 = st.columns(2)
+                    if c1.button("✏️ Editar", key=f"ed_{row['id']}"):
+                        st.session_state.edit_id = row['id']
+                        st.rerun()
+                    if c2.button("🗑️ Excluir", key=f"ex_{row['id']}"):
+                        supabase.table("lancamentos").delete().eq("id", row['id']).execute()
+                        st.rerun()
