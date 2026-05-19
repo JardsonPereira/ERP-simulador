@@ -18,7 +18,7 @@ if 'form_count' not in st.session_state: st.session_state.form_count = 0
 if 'menu_opcao' not in st.session_state: st.session_state.menu_opcao = "📊 Razonetes"
 if 'tem_perfil' not in st.session_state: st.session_state.tem_perfil = False
 
-# Inicialização persistente do filtro no session_state para evitar resets automáticos
+# Inicialização persistente do filtro no session_state para evitar resets
 if 'filtro_admin' not in st.session_state:
     if st.session_state.user and st.session_state.user.email == EMAIL_ADMIN:
         st.session_state.filtro_admin = "Todos"
@@ -214,7 +214,7 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
     pdf.cell(50, 7, clean_str(f"R$ {v_lucro:,.2f}"), border=1, ln=True, align="R")
     pdf.ln(4)
 
-    # 3. BALANÇO PATRIMONIAL ESTRUTURADO
+    # 3. BALANÇO PATRIMONIAL ESTRUTURADO (BLINDAGEM CONTRA ÍNDICES VAZIOS)
     pdf.set_font("Arial", "B", 11)
     pdf.cell(190, 7, clean_str("3. BALANÇO PATRIMONIAL CONSOLIDADO"), ln=True)
     
@@ -327,14 +327,6 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
 
     return pdf.output()
 
-def get_saldo_total_por_natureza(df, nat):
-    if df is None or df.empty or 'natureza' not in df.columns or 'tipo' not in df.columns: return 0.0
-    d = df[(df['natureza'] == nat) & (df['tipo'] == 'Débito')]['valor'].sum()
-    c = df[(df['natureza'] == nat) & (df['tipo'] == 'Crédito')]['valor'].sum()
-    if 'Ativo' in nat or nat in ['Despesa', 'Encargos Financeiros']:
-        return d - c
-    return c - d
-
 # --- AUTENTICAÇÃO ---
 if st.session_state.user is None:
     st.sidebar.title("🔐 Acesso")
@@ -401,14 +393,14 @@ with st.sidebar:
         id_usuario_filtrado = st.session_state.filtro_admin
         st.sidebar.divider()
     
-    # BUSCA PROTEGIDA
+    # BUSCA PROTEGIDA CONTRA CACHE
     contas_existentes = obter_contas_do_usuario(st.session_state.user.id, id_usuario_filtrado)
     
     if st.session_state.edit_id:
         st.header("📝 Editar Lançamento")
         df_edicao = carregar_dados(st.session_state.user.id, id_usuario_filtrado)
         linhas_para_editar = df_edicao[df_edicao['id'] == st.session_state.edit_id] if not df_edicao.empty else pd.DataFrame()
-        if not líneas_para_editar.empty:
+        if not linhas_para_editar.empty:
             reg = linhas_para_editar.iloc[0]
         else:
             reg = {"descricao": "", "natureza": "Ativo Circulante", "tipo": "Débito", "valor": 0.0, "justificativa": "", "status": "Pago", "data_lancamento": datetime.now().date()}
@@ -421,7 +413,7 @@ with st.sidebar:
         st.header("➕ Novo Lançamento")
         reg = {"descricao": "", "natureza": "Ativo Circulante", "tipo": "Débito", "valor": 0.0, "justificativa": "", "status": "Pago", "data_lancamento": datetime.now().date()}
 
-    # O FORMULÁRIO COM CONTROLE DE CHAVE DINÂMICA COMPLETO
+    # RENDERIZAÇÃO BLINDADA: Chave dinâmica limpa os estados do fragmento de forma absoluta
     with st.form(key=f"form_sidebar_{id_usuario_filtrado}_{st.session_state.form_count}"):
         
         if contas_existentes:
@@ -429,14 +421,13 @@ with st.sidebar:
             idx_conta = opcoes_conta.index(reg['descricao']) if reg['descricao'] in contas_existentes else 0
             conta_sel = st.selectbox("Selecione a Conta", opcoes_conta, index=idx_conta)
             
-            # PROTEÇÃO COM KEY ESTÁTICA DO STREAMLIT: Evita que o campo limpe o texto ao digitar
             if conta_sel == "+ Adicionar Nova Conta":
-                desc_input = st.text_input("Nome da Nova Conta", key="nome_nova_conta_input_admin").upper().strip()
+                desc_input = st.text_input("Nome da Nova Conta", value="").upper().strip()
             else:
                 desc_input = conta_sel
         else:
             st.info("ℹ️ Nenhuma conta cadastrada para este perfil.")
-            desc_input = st.text_input("Nome da Nova Conta", key="nome_nova_conta_input_admin_vazio").upper().strip()
+            desc_input = st.text_input("Nome da Nova Conta", value="").upper().strip()
             conta_sel = "+ Adicionar Nova Conta"
             
         data_f = st.date_input("Data", value=reg['data_lancamento'])
@@ -604,7 +595,7 @@ else:
             for conta, valor in agrupar_por_conta(df_fin):
                 st.markdown(f'<div class="dre-subrow"><span>{conta}</span><span>(R$ {valor:,.2f})</span></div>', unsafe_allow_html=True)
                 
-            cor = "#059669" if v_lucro >= 0 else "#dc2626"
+            cor = "#059669" if v_lucrow >= 0 else "#dc2626"
             label_final = "(=) LUCRO LÍQUIDO" if v_lucro >= 0 else "(=) PREJUÍZO LÍQUIDO"
             st.markdown(f'<div class="dre-total" style="color:{cor}; border-top: 2px double #1e293b;">{label_final}: R$ {v_lucro:,.2f}</div>', unsafe_allow_html=True)
 
