@@ -389,11 +389,10 @@ with st.sidebar:
     # --- FORMULÁRIO COMPACTO COM CHAVE DINÂMICA ---
     if st.session_state.edit_id:
         st.header("📝 Editar Lançamento")
-        # Busca pontual apenas para edição
         df_edicao = carregar_dados(st.session_state.user.id, id_usuario_filtrado)
         linhas_para_editar = df_edicao[df_edicao['id'] == st.session_state.edit_id] if not df_edicao.empty else pd.DataFrame()
         if not linhas_para_editar.empty:
-            reg = linhas_para_editar.iloc[0]
+            reg = líneas_para_editar.iloc[0]
         else:
             reg = {"descricao": "", "natureza": "Ativo Circulante", "tipo": "Débito", "valor": 0.0, "justificativa": "", "status": "Pago", "data_lancamento": datetime.now().date()}
             st.session_state.edit_id = None
@@ -405,7 +404,7 @@ with st.sidebar:
         st.header("➕ Novo Lançamento")
         reg = {"descricao": "", "natureza": "Ativo Circulante", "tipo": "Débito", "valor": 0.0, "justificativa": "", "status": "Pago", "data_lancamento": datetime.now().date()}
 
-    # Renderização garantida: o formulário nunca cai na memória cache travada do Streamlit
+    # Renderização garantida: o formulário usa uma chave dinâmica baseada no ID ativo do filtro
     with st.form(key=f"form_sidebar_{id_usuario_filtrado}_{st.session_state.form_count}"):
         if contas_existentes:
             opcoes_conta = ["+ Adicionar Nova Conta"] + contas_existentes
