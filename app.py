@@ -58,7 +58,7 @@ def obter_todos_usuarios_mapeados():
     """Busca os nomes dos usuários na tabela perfis para alimentar o filtro do Admin"""
     mapeamento = {"Todos os Usuários": "Todos"}
     
-    # Insere o Admin no dicionário para que ele sempre seja uma opção selecionável
+    # Garante o Admin sempre ativo na listagem de seleção
     if st.session_state.user:
         mapeamento[f"Meu Usuário (Admin)"] = st.session_state.user.id
 
@@ -110,6 +110,18 @@ def carregar_dados(u_id, usuario_selecionado="Todos"):
             return pd.DataFrame(columns=['descricao', 'natureza', 'tipo', 'valor', 'justificativa', 'status', 'data_lancamento', 'user_id'])
     except Exception: 
         return pd.DataFrame(columns=['descricao', 'natureza', 'tipo', 'valor', 'justificativa', 'status', 'data_lancamento', 'user_id'])
+
+def obter_contas_do_usuario(u_id, usuario_selecionado):
+    """Função isolada e segura para buscar as contas de um escopo sem quebrar a renderização lateral"""
+    try:
+        alvo = u_id if usuario_selecionado == "Todos" else usuario_selecionado
+        res = supabase.table("lancamentos").select("descricao").eq("user_id", alvo).execute()
+        if res.data:
+            df = pd.DataFrame(res.data)
+            return sorted(df['descricao'].dropna().unique().tolist())
+        return []
+    except:
+        return []
 
 def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_pl, v_rec_total, v_desp_total, v_ebitda, v_finan_total, v_lucro):
     pdf = FPDF()
@@ -356,7 +368,7 @@ if not verificar_perfil(st.session_state.user.id):
 with st.sidebar:
     st.write(f"👤 **{st.session_state.user.email}**")
     if is_admin():
-        st.write("⭐ **Modo Administrador Active**")
+        st.write("⭐ **Modo Administrador Ativo**")
         
     if st.button("Sair"):
         st.session_state.user = None
@@ -371,12 +383,15 @@ with st.sidebar:
         id_usuario_filtrado = dict_usuarios[nome_selecionado]
         st.sidebar.divider()
     
-    df_temp = carregar_dados(st.session_state.user.id, id_usuario_filtrado)
+    # BUSCA PROTEGIDA: Obtém a lista de contas usando a nova função estável que ignora tabelas vazias
+    contas_existentes = obter_contas_do_usuario(st.session_state.user.id, id_usuario_filtrado)
     
     # --- FORMULÁRIO COMPACTO COM CHAVE DINÂMICA ---
-    if st.session_state.edit_id and not df_temp.empty:
+    if st.session_state.edit_id:
         st.header("📝 Editar Lançamento")
-        linhas_para_editar = df_temp[df_temp['id'] == st.session_state.edit_id]
+        # Busca pontual apenas para edição
+        df_edicao = carregar_dados(st.session_state.user.id, id_usuario_filtrado)
+        linhas_para_editar = df_edicao[df_edicao['id'] == st.session_state.edit_id] if not df_edicao.empty else pd.DataFrame()
         if not linhas_para_editar.empty:
             reg = linhas_para_editar.iloc[0]
         else:
@@ -390,10 +405,9 @@ with st.sidebar:
         st.header("➕ Novo Lançamento")
         reg = {"descricao": "", "natureza": "Ativo Circulante", "tipo": "Débito", "valor": 0.0, "justificativa": "", "status": "Pago", "data_lancamento": datetime.now().date()}
 
-    # CRÍTICO: Chave dinâmica baseada no ID do Usuário Filtrado força o redesenho e limpa o bug de selectbox em branco
-    with st.form(key=f"form_{id_usuario_filtrado}_{st.session_state.form_count}"):
-        if not df_temp.empty and 'descricao' in df_temp.columns and df_temp['descricao'].dropna().unique().size > 0:
-            contas_existentes = sorted(df_temp['descricao'].dropna().unique().tolist())
+    # Renderização garantida: o formulário nunca cai na memória cache travada do Streamlit
+    with st.form(key=f"form_sidebar_{id_usuario_filtrado}_{st.session_state.form_count}"):
+        if contas_existentes:
             opcoes_conta = ["+ Adicionar Nova Conta"] + contas_existentes
             idx_conta = opcoes_conta.index(reg['descricao']) if reg['descricao'] in contas_existentes else 0
             conta_sel = st.selectbox("Selecione a Conta", opcoes_conta, index=idx_conta)
@@ -427,8 +441,7 @@ with st.sidebar:
         botao_confirmar = st.form_submit_button("Confirmar", disabled=is_disabled)
         
         if botao_confirmar:
-            user_dono = reg.get('user_id', id_usuario_filtrado) if st.session_state.edit_id else id_usuario_filtrado
-            
+            user_dono = id_usuario_filtrado
             if user_dono == "Todos":
                 user_dono = st.session_state.user.id
                 
@@ -634,7 +647,7 @@ else:
                 st.error("Não é permitido resetar a base global de uma só vez no modo 'Todos'. Selecione um usuário específico para resetar.")
             else:
                 alvo_reset = st.session_state.user.id if not is_admin() else id_usuario_filtrado
-                supabase.table("lancamentos").delete().eq("id_usuario", alvo_reset).execute()
+                supabase.table("lancamentos").delete().eq("user_id", alvo_reset).execute()
                 st.rerun()
             
         if not df_base.empty and 'data_lancamento' in df_base.columns:
