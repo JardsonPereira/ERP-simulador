@@ -58,7 +58,7 @@ def obter_todos_usuarios_mapeados():
     """Busca os nomes dos usuários na tabela perfis para alimentar o filtro do Admin"""
     mapeamento = {"Todos os Usuários": "Todos"}
     
-    # GARANTIA ABSOLUTA: Insere o Admin no dicionário para que ele sempre seja uma opção selecionável
+    # Insere o Admin no dicionário para que ele sempre seja uma opção selecionável
     if st.session_state.user:
         mapeamento[f"Meu Usuário (Admin)"] = st.session_state.user.id
 
@@ -77,7 +77,7 @@ def obter_todos_usuarios_mapeados():
             ids_unicos = df_lanc['user_id'].unique().tolist()
             for uid in ids_unicos:
                 if uid == st.session_state.user.id:
-                    continue  # Ignora para não duplicar a opção do Admin criada no topo
+                    continue  
                 if uid in perfis_dict:
                     mapeamento[perfis_dict[uid]] = uid
                 else:
@@ -371,7 +371,6 @@ with st.sidebar:
         id_usuario_filtrado = dict_usuarios[nome_selecionado]
         st.divider()
     
-    # IMPORTANTE: df_temp carrega as informações exclusivas da pessoa selecionada na barra lateral
     df_temp = carregar_dados(st.session_state.user.id, id_usuario_filtrado)
     
     if is_admin() and id_usuario_filtrado == "Todos" and not st.session_state.edit_id:
@@ -394,10 +393,16 @@ with st.sidebar:
             reg = {"descricao": "", "natureza": "Ativo Circulante", "tipo": "Débito", "valor": 0.0, "justificativa": "", "status": "Pago", "data_lancamento": datetime.now().date()}
 
         with st.form(key=f"contabil_form_{st.session_state.form_count}"):
-            contas_existentes = sorted(df_temp['descricao'].dropna().unique().tolist()) if not df_temp.empty else []
-            opcoes_conta = ["+ Adicionar Nova Conta"] + contas_existentes
-            idx_conta = opcoes_conta.index(reg['descricao']) if reg['descricao'] in contas_existentes else 0
-            conta_sel = st.selectbox("Selecione a Conta", opcoes_conta, index=idx_conta)
+            # CORREÇÃO CRÍTICA AQUI: Se a base do usuário estiver vazia (como no caso do Admin novinho), 
+            # nós criamos a lista contendo APENAS a opção de adicionar e pulamos o cálculo de indexação dinâmico.
+            if not df_temp.empty and 'descricao' in df_temp.columns and df_temp['descricao'].dropna().unique().size > 0:
+                contas_existentes = sorted(df_temp['descricao'].dropna().unique().tolist())
+                opcoes_conta = ["+ Adicionar Nova Conta"] + contas_existentes
+                idx_conta = opcoes_conta.index(reg['descricao']) if reg['descricao'] in contas_existentes else 0
+                conta_sel = st.selectbox("Selecione a Conta", opcoes_conta, index=idx_conta)
+            else:
+                opcoes_conta = ["+ Adicionar Nova Conta"]
+                conta_sel = st.selectbox("Selecione a Conta", opcoes_conta, index=0)
             
             desc_input = st.text_input("Nome da Conta", value=reg['descricao']).upper().strip() if conta_sel == "+ Adicionar Nova Conta" else conta_sel
             data_f = st.date_input("Data", value=reg['data_lancamento'])
