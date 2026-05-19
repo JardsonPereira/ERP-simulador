@@ -383,7 +383,7 @@ with st.sidebar:
         id_usuario_filtrado = dict_usuarios[nome_selecionado]
         st.sidebar.divider()
     
-    # BUSCA PROTEGIDA: Obtém a lista de contas usando a função estável de escopo limpo
+    # BUSCA PROTEGIDA: Obtém a lista de contas usando a função de escopo isolado
     contas_existentes = obter_contas_do_usuario(st.session_state.user.id, id_usuario_filtrado)
     
     # --- FORMULÁRIO COMPACTO COM CHAVE DINÂMICA ---
@@ -404,7 +404,7 @@ with st.sidebar:
         st.header("➕ Novo Lançamento")
         reg = {"descricao": "", "natureza": "Ativo Circulante", "tipo": "Débito", "valor": 0.0, "justificativa": "", "status": "Pago", "data_lancamento": datetime.now().date()}
 
-    # Renderização garantida: a chave muda dinamicamente baseado no ID do filtro ativo + o contador de submits
+    # Renderização garantida: Chave dinâmica limpa o cache cruzado do Streamlit de forma absoluta
     with st.form(key=f"form_sidebar_{id_usuario_filtrado}_{st.session_state.form_count}"):
         if contas_existentes:
             opcoes_conta = ["+ Adicionar Nova Conta"] + contas_existentes
@@ -414,7 +414,12 @@ with st.sidebar:
             opcoes_conta = ["+ Adicionar Nova Conta"]
             conta_sel = st.selectbox("Selecione a Conta", opcoes_conta, index=0)
         
-        desc_input = st.text_input("Nome da Conta", value=reg['descricao']).upper().strip() if conta_sel == "+ Adicionar Nova Conta" else conta_sel
+        # BLINDAGEM DO INPUT: Remove o travamento estático do Streamlit usando uma chave própria interna do fragmento
+        if conta_sel == "+ Adicionar Nova Conta":
+            desc_input = st.text_input("Nome da Nova Conta", key="nova_conta_input_admin").upper().strip()
+        else:
+            desc_input = conta_sel
+            
         data_f = st.date_input("Data", value=reg['data_lancamento'])
         
         grupos = ["Ativo Circulante", "Ativo Não Circulante", "Passivo Circulante", "Passivo Não Circulante", "Patrimônio Líquido", "Receita", "Despesa", "Encargos Financeiros"]
@@ -506,7 +511,7 @@ def get_saldo_total_por_natureza(df, nat):
 if not df_periodo.empty and 'natureza' in df_periodo.columns and 'tipo' in df_periodo.columns:
     v_rec = df_periodo[(df_periodo['natureza'] == 'Receita') & (df_periodo['tipo'] == 'Crédito')]['valor'].sum()
     v_desp_op = df_periodo[(df_periodo['natureza'] == 'Despesa') & (df_periodo['tipo'] == 'Débito')]['valor'].sum()
-    v_finan = df_periodo[(df_periodo['natureza'] == 'Encargos Financeiros') & (df_periodo['tipo'] == 'Débito')]['valor'].sum()
+    v_finan = df_periodo[(df_periodo['natureza'] == 'Encargos Financeiros') & (df_periodo['tipo'] == 'Débito')]['sum'] if 'sum' in df_periodo.columns else df_periodo[(df_periodo['natureza'] == 'Encargos Financeiros') & (df_periodo['tipo'] == 'Débito')]['valor'].sum()
 else:
     v_rec, v_desp_op, v_finan = 0.0, 0.0, 0.0
 v_lucro = v_rec - v_desp_op - v_finan
