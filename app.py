@@ -356,7 +356,7 @@ if not verificar_perfil(st.session_state.user.id):
 with st.sidebar:
     st.write(f"👤 **{st.session_state.user.email}**")
     if is_admin():
-        st.write("⭐ **Modo Administrador Ativo**")
+        st.write("⭐ **Modo Administrador Active**")
         
     if st.button("Sair"):
         st.session_state.user = None
@@ -371,10 +371,9 @@ with st.sidebar:
         id_usuario_filtrado = dict_usuarios[nome_selecionado]
         st.sidebar.divider()
     
-    # IMPORTANTE: Carrega os dados para alimentar a memória de contas existentes do filtro atual
     df_temp = carregar_dados(st.session_state.user.id, id_usuario_filtrado)
     
-    # --- FORMULÁRIO COMPACTO E SEMPRE VISÍVEL NA BARRA LATERAL ---
+    # --- FORMULÁRIO COMPACTO COM CHAVE DINÂMICA ---
     if st.session_state.edit_id and not df_temp.empty:
         st.header("📝 Editar Lançamento")
         linhas_para_editar = df_temp[df_temp['id'] == st.session_state.edit_id]
@@ -391,8 +390,8 @@ with st.sidebar:
         st.header("➕ Novo Lançamento")
         reg = {"descricao": "", "natureza": "Ativo Circulante", "tipo": "Débito", "valor": 0.0, "justificativa": "", "status": "Pago", "data_lancamento": datetime.now().date()}
 
-    with st.form(key=f"contabil_form_estavel"):
-        # Se houver histórico na base do filtro, popula as contas antigas. Se não, isola na criação.
+    # CRÍTICO: Chave dinâmica baseada no ID do Usuário Filtrado força o redesenho e limpa o bug de selectbox em branco
+    with st.form(key=f"form_{id_usuario_filtrado}_{st.session_state.form_count}"):
         if not df_temp.empty and 'descricao' in df_temp.columns and df_temp['descricao'].dropna().unique().size > 0:
             contas_existentes = sorted(df_temp['descricao'].dropna().unique().tolist())
             opcoes_conta = ["+ Adicionar Nova Conta"] + contas_existentes
@@ -420,7 +419,6 @@ with st.sidebar:
         status_pag = st.selectbox("Status", opcoes_status, index=opcoes_status.index(reg['status']) if reg['status'] in opcoes_status else 0)
         just_input = st.text_area("Justificativa", value=reg['justificativa'])
         
-        # Lógica inteligente do botão Confirmar: bloqueia se o Admin estiver visualizando a base global de "Todos"
         is_disabled = is_admin() and id_usuario_filtrado == "Todos" and not st.session_state.edit_id
         
         if is_disabled:
@@ -576,7 +574,7 @@ else:
             for conta, valor in agrupar_por_conta(df_fin):
                 st.markdown(f'<div class="dre-subrow"><span>{conta}</span><span>(R$ {valor:,.2f})</span></div>', unsafe_allow_html=True)
                 
-            cor = "#059669" if v_lucrow >= 0 else "#dc2626"
+            cor = "#059669" if v_lucro >= 0 else "#dc2626"
             label_final = "(=) LUCRO LÍQUIDO" if v_lucro >= 0 else "(=) PREJUÍZO LÍQUIDO"
             st.markdown(f'<div class="dre-total" style="color:{cor}; border-top: 2px double #1e293b;">{label_final}: R$ {v_lucro:,.2f}</div>', unsafe_allow_html=True)
 
@@ -636,7 +634,7 @@ else:
                 st.error("Não é permitido resetar a base global de uma só vez no modo 'Todos'. Selecione um usuário específico para resetar.")
             else:
                 alvo_reset = st.session_state.user.id if not is_admin() else id_usuario_filtrado
-                supabase.table("lancamentos").delete().eq("user_id", alvo_reset).execute()
+                supabase.table("lancamentos").delete().eq("id_usuario", alvo_reset).execute()
                 st.rerun()
             
         if not df_base.empty and 'data_lancamento' in df_base.columns:
