@@ -57,6 +57,11 @@ def verificar_perfil(u_id):
 def obter_todos_usuarios_mapeados():
     """Busca os nomes dos usuários na tabela perfis para alimentar o filtro do Admin"""
     mapeamento = {"Todos os Usuários": "Todos"}
+    
+    # GARANTIA: Insere o Administrador diretamente para que ele sempre apareça na lista de seleção
+    if st.session_state.user:
+        mapeamento[f"Admin ({st.session_state.user.email})"] = st.session_state.user.id
+
     try:
         res_perfis = supabase.table("perfis").select("id, nome_usuario").execute()
         df_perfis = pd.DataFrame(res_perfis.data)
@@ -71,15 +76,16 @@ def obter_todos_usuarios_mapeados():
         if not df_lanc.empty and 'user_id' in df_lanc.columns:
             ids_unicos = df_lanc['user_id'].unique().tolist()
             for uid in ids_unicos:
+                # Se o ID for do admin, já foi adicionado acima, então pulamos para evitar duplicidade
+                if uid == st.session_state.user.id:
+                    continue
                 if uid in perfis_dict:
                     mapeamento[perfis_dict[uid]] = uid
-                elif uid == st.session_state.user.id:
-                    mapeamento[f"Admin ({st.session_state.user.email})"] = uid
                 else:
                     mapeamento[f"Sem Nome ({uid[:8]}...)"] = uid
         return mapeamento
     except Exception:
-        return {"Todos os Usuários": "Todos"}
+        return mapeamento
 
 def carregar_dados(u_id, usuario_selecionado="Todos"):
     try:
@@ -215,7 +221,7 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
         
     # Passivo Não Circulante
     v_pass_nc = total_grupo_com_sinal(df_pass_nc, 'Passivo Não Circulante')
-    linhas_passivo_pl.append(("PASSIVO NÃO CIRCULANTE", v_pass_nc, True))
+    linhas_passivo_pl.append(("PASSIVO NÃO CONVERTIDO / LONGO PRAZO", v_pass_nc, True))
     for c, v in agrupar_por_conta(df_pass_nc):
         linhas_passivo_pl.append((f"  {c}", v, False))
         
@@ -226,7 +232,6 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
         linhas_passivo_pl.append((f"  {c}", v, False))
         
     label_lucro_ex = "  Lucros do Exercício" if v_lucro >= 0 else "  Prejuízos Acumulados"
-    # CORREÇÃO DA TUPLA: Adicionado o terceiro argumento (is_bold=False) para evitar o erro de unpack
     linhas_passivo_pl.append((label_lucro_ex, v_lucro, False))
 
     max_linhas = max(len(linhas_ativo), len(linhas_passivo_pl))
@@ -378,10 +383,8 @@ with st.sidebar:
         id_usuario_filtrado = dict_usuarios[nome_selecionado]
         st.divider()
     
-    # Busca a base correta para alimentar as opções do formulário
     df_temp = carregar_dados(st.session_state.user.id, id_usuario_filtrado)
     
-    # Bloqueio visual/segurança inteligente para o Admin no modo "Todos"
     if is_admin() and id_usuario_filtrado == "Todos" and not st.session_state.edit_id:
         st.info("💡 Para criar um novo razonete/lançamento, selecione um usuário específico no filtro acima.")
     else:
