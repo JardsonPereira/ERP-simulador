@@ -18,14 +18,16 @@ if 'form_count' not in st.session_state: st.session_state.form_count = 0
 if 'menu_opcao' not in st.session_state: st.session_state.menu_opcao = "📊 Razonetes"
 if 'tem_perfil' not in st.session_state: st.session_state.tem_perfil = False
 
-# Inicialização inteligente da variável de controle de filtros:
-if st.session_state.user:
-    if st.session_state.user.email == EMAIL_ADMIN:
-        id_usuario_filtrado = "Todos"
+# CORREÇÃO CRÍTICA: Inicialização persistente do filtro usando session_state para não resetar no rerun
+if 'filtro_admin' not in st.session_state:
+    if st.session_state.user and st.session_state.user.email == EMAIL_ADMIN:
+        st.session_state.filtro_admin = "Todos"
+    elif st.session_state.user:
+        st.session_state.filtro_admin = st.session_state.user.id
     else:
-        id_usuario_filtrado = st.session_state.user.id
-else:
-    id_usuario_filtrado = "Todos"
+        st.session_state.filtro_admin = "Todos"
+
+id_usuario_filtrado = st.session_state.filtro_admin
 
 try:
     url: str = st.secrets["SUPABASE_URL"]
@@ -362,7 +364,7 @@ if not verificar_perfil(st.session_state.user.id):
                     st.rerun()
                 except Exception as e:
                     st.error(f"Erro ao salvar o nome: {e}")
-    st.stop()
+    st.sidebar.stop()
 
 # --- PROCESSAMENTO LATERAL ---
 with st.sidebar:
@@ -373,14 +375,22 @@ with st.sidebar:
     if st.button("Sair"):
         st.session_state.user = None
         st.session_state.tem_perfil = False
+        if 'filtro_admin' in st.session_state: del st.session_state.filtro_admin
         st.rerun()
     st.sidebar.divider()
     
     if is_admin():
         st.header("🔍 Painel Admin")
         dict_usuarios = obter_todos_usuarios_mapeados()
-        nome_selecionado = st.selectbox("Filtrar lançamentos de:", list(dict_usuarios.keys()))
-        id_usuario_filtrado = dict_usuarios[nome_selecionado]
+        
+        # Mapeia o índice atual do session_state de forma limpa
+        lista_nomes_usuarios = list(dict_usuarios.keys())
+        lista_ids_usuarios = list(dict_usuarios.values())
+        idx_atual_filtro = lista_ids_usuarios.index(st.session_state.filtro_admin) if st.session_state.filtro_admin in lista_ids_usuarios else 0
+        
+        nome_selecionado = st.selectbox("Filtrar lançamentos de:", lista_nomes_usuarios, index=idx_atual_filtro)
+        st.session_state.filtro_admin = dict_usuarios[nome_selecionado]
+        id_usuario_filtrado = st.session_state.filtro_admin
         st.sidebar.divider()
     
     # BUSCA PROTEGIDA: Obtém a lista de contas usando a função de escopo isolado
@@ -511,7 +521,7 @@ def get_saldo_total_por_natureza(df, nat):
 if not df_periodo.empty and 'natureza' in df_periodo.columns and 'tipo' in df_periodo.columns:
     v_rec = df_periodo[(df_periodo['natureza'] == 'Receita') & (df_periodo['tipo'] == 'Crédito')]['valor'].sum()
     v_desp_op = df_periodo[(df_periodo['natureza'] == 'Despesa') & (df_periodo['tipo'] == 'Débito')]['valor'].sum()
-    v_finan = df_periodo[(df_periodo['natureza'] == 'Encargos Financeiros') & (df_periodo['tipo'] == 'Débito')]['sum'] if 'sum' in df_periodo.columns else df_periodo[(df_periodo['natureza'] == 'Encargos Financeiros') & (df_periodo['tipo'] == 'Débito')]['valor'].sum()
+    v_finan = df_periodo[(df_periodo['natureza'] == 'Encargos Financeiros') & (df_periodo['tipo'] == 'Débito')]['valor'].sum()
 else:
     v_rec, v_desp_op, v_finan = 0.0, 0.0, 0.0
 v_lucro = v_rec - v_desp_op - v_finan
