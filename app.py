@@ -98,11 +98,10 @@ def carregar_dados(u_id, usuario_selecionado="Todos"):
     except Exception: 
         return pd.DataFrame()
 
-def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_pl, v_rec_total, v_desp_total, v_ebitda, v_finan_total, v_lucro):
+def gerar_pdf(user_email, df_per, df_bal, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_pl, v_rec_total, v_desp_total, v_ebitda, v_finan_total, v_lucro):
     pdf = FPDF()
     pdf.add_page()
     
-    # Função auxiliar interna para limpar caracteres incompatíveis com o PDF padrão
     def clean_str(s):
         return str(s).encode('latin-1', 'ignore').decode('latin-1')
     
@@ -128,7 +127,6 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
     pdf.cell(190, 7, clean_str("2. DEMONSTRAÇÃO DO RESULTADO (DRE DETALHADA)"), ln=True)
     pdf.set_font("Arial", "", 9)
     
-    # Seção de Receitas Detalhadas
     pdf.set_font("Arial", "B", 9)
     pdf.cell(140, 6, clean_str("(+) RECEITAS"), border=1)
     pdf.cell(50, 6, clean_str(f"R$ {v_rec_total:,.2f}"), border=1, ln=True, align="R")
@@ -138,7 +136,6 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
         pdf.cell(140, 5.5, clean_str(f"   {conta}"), border=1)
         pdf.cell(50, 5.5, clean_str(f"R$ {valor:,.2f}"), border=1, ln=True, align="R")
         
-    # Seção de Despesas Detalhadas
     pdf.set_font("Arial", "B", 9)
     pdf.cell(140, 6, clean_str("(-) DESPESAS OPERACIONAIS"), border=1)
     pdf.cell(50, 6, clean_str(f"R$ ({v_desp_total:,.2f})"), border=1, ln=True, align="R")
@@ -148,12 +145,10 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
         pdf.cell(140, 5.5, clean_str(f"   {conta}"), border=1)
         pdf.cell(50, 5.5, clean_str(f"R$ ({valor:,.2f})"), border=1, ln=True, align="R")
         
-    # EBITDA
     pdf.set_font("Arial", "B", 9)
     pdf.cell(140, 6, clean_str("(=) EBITDA"), border=1)
     pdf.cell(50, 6, clean_str(f"R$ {v_ebitda:,.2f}"), border=1, ln=True, align="R")
     
-    # Seção de Encargos Financeiros Detalhados
     pdf.cell(140, 6, clean_str("(-) ENCARGOS FINANCEIROS / IMPOSTOS"), border=1)
     pdf.cell(50, 6, clean_str(f"R$ ({v_finan_total:,.2f})"), border=1, ln=True, align="R")
     pdf.set_font("Arial", "", 9)
@@ -162,18 +157,16 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
         pdf.cell(140, 5.5, clean_str(f"   {conta}"), border=1)
         pdf.cell(50, 5.5, clean_str(f"R$ ({valor:,.2f})"), border=1, ln=True, align="R")
         
-    # Resultado Líquido
     pdf.set_font("Arial", "B", 9)
     label_resultado = "(=) LUCRO LÍQUIDO DO PERÍODO" if v_lucro >= 0 else "(=) PREJUÍZO LÍQUIDO DO PERÍODO"
     pdf.cell(140, 7, clean_str(label_resultado), border=1)
     pdf.cell(50, 7, clean_str(f"R$ {v_lucro:,.2f}"), border=1, ln=True, align="R")
     pdf.ln(4)
 
-    # 3. BALANÇO PATRIMONIAL ESTRUTURADO
+    # 3. BALANÇO PATRIMONIAL ACUMULADO (MUDANÇA AQUI: Usa df_bal em vez de df_per)
     pdf.set_font("Arial", "B", 11)
-    pdf.cell(190, 7, clean_str("3. BALANÇO PATRIMONIAL CONSOLIDADO"), ln=True)
+    pdf.cell(190, 7, clean_str("3. BALANÇO PATRIMONIAL CONSOLIDADO (HISTÓRICO ACUMULADO)"), ln=True)
     
-    # Cabeçalho das Colunas Principais do Balanço
     pdf.set_font("Arial", "B", 10)
     pdf.cell(65, 7, clean_str("ATIVO"), border=1, align="C")
     pdf.cell(30, 7, clean_str("Valor (R$)"), border=1, align="R")
@@ -181,46 +174,41 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
     pdf.cell(30, 7, clean_str("Valor (R$)"), border=1, align="R")
     pdf.ln()
 
-    df_at_circ = df_per[df_per['natureza'] == 'Ativo Circulante']
-    df_at_nc = df_per[df_per['natureza'] == 'Ativo Não Circulante']
-    df_pass_circ = df_per[df_per['natureza'] == 'Passivo Circulante']
-    df_pass_nc = df_per[df_per['natureza'] == 'Passivo Não Circulante']
-    filt_pl = df_per[df_per['natureza'] == 'Patrimônio Líquido']
+    df_at_circ = df_bal[df_bal['natureza'] == 'Ativo Circulante']
+    df_at_nc = df_bal[df_bal['natureza'] == 'Ativo Não Circulante']
+    df_pass_circ = df_bal[df_bal['natureza'] == 'Passivo Circulante']
+    df_pass_nc = df_bal[df_bal['natureza'] == 'Passivo Não Circulante']
+    filt_pl = df_bal[df_bal['natureza'] == 'Patrimônio Líquido']
     
     linhas_ativo = []
     linhas_passivo_pl = []
 
-    # Ativo Circulante
     v_at_circ = total_grupo_com_sinal(df_at_circ, 'Ativo Circulante')
     linhas_ativo.append(("ATIVO CIRCULANTE", v_at_circ, True))
     for c, v in agrupar_por_conta(df_at_circ):
         linhas_ativo.append((f"  {c}", v, False))
         
-    # Ativo Não Circulante
     v_at_nc = total_grupo_com_sinal(df_at_nc, 'Ativo Não Circulante')
     linhas_ativo.append(("ATIVO NÃO CIRCULANTE", v_at_nc, True))
     for c, v in agrupar_por_conta(df_at_nc):
         linhas_ativo.append((f"  {c}", v, False))
 
-    # Passivo Circulante
     v_pass_circ = total_grupo_com_sinal(df_pass_circ, 'Passivo Circulante')
     linhas_passivo_pl.append(("PASSIVO CIRCULANTE", v_pass_circ, True))
     for c, v in agrupar_por_conta(df_pass_circ):
         linhas_passivo_pl.append((f"  {c}", v, False))
         
-    # Passivo Não Circulante
     v_pass_nc = total_grupo_com_sinal(df_pass_nc, 'Passivo Não Circulante')
     linhas_passivo_pl.append(("PASSIVO NÃO CIRCULANTE", v_pass_nc, True))
     for c, v in agrupar_por_conta(df_pass_nc):
         linhas_passivo_pl.append((f"  {c}", v, False))
         
-    # Bloco Patrimônio Líquido
     linhas_passivo_pl.append(("", None, False))
     linhas_passivo_pl.append(("PATRIMÔNIO LÍQUIDO", None, True))
     for c, v in agrupar_por_conta(filt_pl):
         linhas_passivo_pl.append((f"  {c}", v, False))
         
-    label_lucro_ex = "  Lucros do Exercício" if v_lucro >= 0 else "  Prejuízos Acumulados"
+    label_lucro_ex = "  Lucros Retidos Acumulados" if v_lucro >= 0 else "  Prejuízos Acumulados"
     linhas_passivo_pl.append((label_lucro_ex, v_lucro, False))
 
     max_linhas = max(len(linhas_ativo), len(linhas_passivo_pl))
@@ -228,7 +216,7 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
     pdf.set_font("Arial", "", 8)
     for index in range(max_linhas):
         if index < len(linhas_ativo):
-            desc_at, val_at, is_bold_at = linhas_ativo[index]
+            desc_at, val_at, is_bold_at = lines_ativo = linhas_ativo[index]
             pdf.set_font("Arial", "B" if is_bold_at else "", 8)
             pdf.cell(65, 5.5, clean_str(desc_at), border=1)
             pdf.cell(30, 5.5, f"{val_at:,.2f}" if val_at is not None else "", border=1, align="R")
@@ -246,7 +234,6 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
             pdf.cell(30, 5.5, "", border=1)
         pdf.ln()
 
-    # Rodapé do Balanço
     pdf.set_font("Arial", "B", 9)
     pl_final_calculado = v_pl + v_lucro
     pdf.cell(65, 6.5, clean_str("TOTAL DO ATIVO"), border=1)
@@ -272,7 +259,7 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
     if not df_per.empty:
         df_ordenado = df_per.sort_values('data_lancamento')
         for _, r in df_ordenado.iterrows():
-            data_formatada = r['data_lancamento'].strftime('%d/%m/%Y') if isinstance(r['data_lancamento'], datetime) or hasattr(r['data_lancamento'], 'strftime') else str(r['data_lancamento'])
+            data_formatada = r['data_lancamento'].strftime('%d/%m/%Y') if hasattr(r['data_lancamento'], 'strftime') else str(r['data_lancamento'])
             desc = r['descricao'][:25]
             grupo_nome = r['natureza'][:15]
             just = r['justificativa'][:25] if r['justificativa'] else r['status']
@@ -391,7 +378,13 @@ with st.sidebar:
         reg = {"descricao": "", "natureza": "Ativo Circulante", "tipo": "Débito", "valor": 0.0, "justificativa": "", "status": "Pago", "data_lancamento": datetime.now().date()}
 
     with st.form(key=f"contabil_form_{st.session_state.form_count}"):
-        contas_existentes = sorted(df_temp['descricao'].unique().tolist()) if not df_temp.empty else []
+        # Correção do vazamento de dados do Admin: Filtra apenas as contas do contexto real
+        if is_admin() and id_usuario_filtrado == "Todos":
+            df_contas_seguro = df_temp[df_temp['user_id'] == st.session_state.user.id]
+        else:
+            df_contas_seguro = df_temp
+            
+        contas_existentes = sorted(df_contas_seguro['descricao'].unique().tolist()) if not df_contas_seguro.empty else []
         opcoes_conta = ["+ Adicionar Nova Conta"] + contas_existentes
         idx_conta = opcoes_conta.index(reg['descricao']) if reg['descricao'] in contas_existentes else 0
         conta_sel = st.selectbox("Selecione a Conta", opcoes_conta, index=idx_conta)
@@ -415,7 +408,7 @@ with st.sidebar:
         just_input = st.text_area("Justificativa", value=reg['justificativa'])
         
         if st.form_submit_button("Confirmar"):
-            user_dono = reg.get('user_id', st.session_state.user.id) if st.session_state.edit_id else st.session_state.user.id
+            user_dono = reg.get('user_id', st.session_state.user.id) if st.session_state.edit_id else (st.session_state.user.id if id_usuario_filtrado == "Todos" else id_usuario_filtrado)
             payload = {"user_id": user_dono, "descricao": desc_input, "natureza": nat, "tipo": tipo, "valor": valor, "justificativa": just_input, "status": status_pag, "data_lancamento": str(data_f)}
             if st.session_state.edit_id: supabase.table("lancamentos").update(payload).eq("id", st.session_state.edit_id).execute()
             else: supabase.table("lancamentos").insert(payload).execute()
@@ -451,7 +444,10 @@ st.divider()
 f1, f2 = st.columns(2)
 with f1: data_ini = st.date_input("Início do Período", value=datetime.now().date().replace(day=1))
 with f2: data_fim = st.date_input("Fim do Período", value=datetime.now().date())
+
+# Segregação de Dataframes para consistência contábil
 df_periodo = df_base[(df_base['data_lancamento'] >= data_ini) & (df_base['data_lancamento'] <= data_fim)].copy()
+df_balanco = df_base[df_base['data_lancamento'] <= data_fim].copy() # Correção: Balanço Patrimonial é acumulado histórico
 
 # --- LÓGICA DE SALDO E CONTINUIDADE ---
 def get_caixa_acumulado(data_limite):
@@ -462,7 +458,7 @@ def get_caixa_acumulado(data_limite):
 s_ini = get_caixa_acumulado(data_ini - timedelta(days=1))
 s_fin = get_caixa_acumulado(data_fim)
 
-# --- CÁLCULOS TÉCNICOS ADAPTADOS ---
+# --- CÁLCULOS TÉCNICOS ---
 def get_saldo_total_por_natureza(df, nat):
     if df.empty: return 0.0
     d = df[(df['natureza'] == nat) & (df['tipo'] == 'Débito')]['valor'].sum()
@@ -476,23 +472,26 @@ v_desp_op = df_periodo[(df_periodo['natureza'] == 'Despesa') & (df_periodo['tipo
 v_finan = df_periodo[(df_periodo['natureza'] == 'Encargos Financeiros') & (df_periodo['tipo'] == 'Débito')]['valor'].sum()
 v_lucro = v_rec - v_desp_op - v_finan
 
-v_at_total = get_saldo_total_por_natureza(df_periodo, 'Ativo Circulante') + get_saldo_total_por_natureza(df_periodo, 'Ativo Não Circulante')
-v_pas_total = get_saldo_total_por_natureza(df_periodo, 'Passivo Circulante') + get_saldo_total_por_natureza(df_periodo, 'Passivo Não Circulante')
-v_pl_per = get_saldo_total_por_natureza(df_periodo, 'Patrimônio Líquido')
+# Mudança aqui: Balanço usa df_balanco
+v_at_total = get_saldo_total_por_natureza(df_balanco, 'Ativo Circulante') + get_saldo_total_por_natureza(df_balanco, 'Ativo Não Circulante')
+v_pas_total = get_saldo_total_por_natureza(df_balanco, 'Passivo Circulante') + get_saldo_total_por_natureza(df_balanco, 'Passivo Não Circulante')
+v_pl_per = get_saldo_total_por_natureza(df_balanco, 'Patrimônio Líquido')
 
 # Botão PDF
 col_imp, _ = st.columns([1, 4])
 with col_imp:
-    pdf_bytes = gerar_pdf(st.session_state.user.email, df_periodo, data_ini, data_fim, s_ini, s_fin, v_at_total, v_pas_total, v_pl_per, v_rec, v_desp_op, v_rec - v_desp_op, v_finan, v_lucro)
+    pdf_bytes = gerar_pdf(st.session_state.user.email, df_periodo, df_balanco, data_ini, data_fim, s_ini, s_fin, v_at_total, v_pas_total, v_pl_per, v_rec, v_desp_op, v_rec - v_desp_op, v_finan, v_lucro)
     st.download_button("🖨️ Baixar PDF", data=bytes(pdf_bytes), file_name=f"Relatorio_{data_ini}.pdf", mime="application/pdf")
 
 # --- CONTEÚDO ---
 if df_periodo.empty and st.session_state.menu_opcao != "⚙️ Gestão":
-    st.info("Sem dados no período.")
+    st.info("Sem dados de movimentação no período informado.")
 else:
     if st.session_state.menu_opcao == "📊 Razonetes":
         for grupo in ["Ativo Circulante", "Ativo Não Circulante", "Passivo Circulante", "Passivo Não Circulante", "Patrimônio Líquido", "Receita", "Despesa", "Encargos Financeiros"]:
-            df_g = df_periodo[df_periodo['natureza'] == grupo]
+            # Razonetes patrimoniais usam histórico acumulado, contas de resultado usam filtro de período
+            df_g = df_balanco[df_balanco['natureza'] == grupo] if 'Circulante' in grupo or grupo == "Patrimônio Líquido" else df_periodo[df_periodo['natureza'] == grupo]
+            
             if not df_g.empty:
                 st.subheader(grupo)
                 cols = st.columns(3)
@@ -518,8 +517,9 @@ else:
 
     elif st.session_state.menu_opcao == "🧾 Balancete":
         bal_data = []
-        for conta in sorted(df_periodo['descricao'].unique()):
-            df_c = df_periodo[df_periodo['descricao'] == conta]
+        # Balancete de verificação usa df_balanco para trazer contas ativas antigas
+        for conta in sorted(df_balanco['descricao'].unique()):
+            df_c = df_balanco[df_balanco['descricao'] == conta]
             d, c = df_c[df_c['tipo']=='Débito']['valor'].sum(), df_c[df_c['tipo']=='Crédito']['valor'].sum()
             bal_data.append({"Conta": conta, "Grupo": df_c['natureza'].iloc[0], "Débito": d, "Crédito": c, "SD": d-c if d>c else 0, "SC": c-d if c>d else 0})
         df_bal = pd.DataFrame(bal_data)
@@ -556,8 +556,8 @@ else:
 
     elif st.session_state.menu_opcao == "💸 Fluxo de Caixa":
         disponibilidades = s_fin  
-        pas_circ_total = get_saldo_total_por_natureza(df_periodo, 'Passivo Circulante')
-        pas_nc_total = get_saldo_total_por_natureza(df_periodo, 'Passivo Não Circulante')
+        pas_circ_total = get_saldo_total_por_natureza(df_balanco, 'Passivo Circulante')
+        pas_nc_total = get_saldo_total_por_natureza(df_balanco, 'Passivo Não Circulante')
         passivo_total_obrigacoes = pas_circ_total + pas_nc_total
         
         liq_imediata = disponibilidades / pas_circ_total if pas_circ_total > 0 else disponibilidades
