@@ -383,7 +383,7 @@ with st.sidebar:
         id_usuario_filtrado = dict_usuarios[nome_selecionado]
         st.sidebar.divider()
     
-    # BUSCA PROTEGIDA: Obtém a lista de contas usando a nova função estável que ignora tabelas vazias
+    # BUSCA PROTEGIDA: Obtém a lista de contas usando a função estável de escopo limpo
     contas_existentes = obter_contas_do_usuario(st.session_state.user.id, id_usuario_filtrado)
     
     # --- FORMULÁRIO COMPACTO COM CHAVE DINÂMICA ---
@@ -392,7 +392,7 @@ with st.sidebar:
         df_edicao = carregar_dados(st.session_state.user.id, id_usuario_filtrado)
         linhas_para_editar = df_edicao[df_edicao['id'] == st.session_state.edit_id] if not df_edicao.empty else pd.DataFrame()
         if not linhas_para_editar.empty:
-            reg = líneas_para_editar.iloc[0]
+            reg = linhas_para_editar.iloc[0]
         else:
             reg = {"descricao": "", "natureza": "Ativo Circulante", "tipo": "Débito", "valor": 0.0, "justificativa": "", "status": "Pago", "data_lancamento": datetime.now().date()}
             st.session_state.edit_id = None
@@ -404,7 +404,7 @@ with st.sidebar:
         st.header("➕ Novo Lançamento")
         reg = {"descricao": "", "natureza": "Ativo Circulante", "tipo": "Débito", "valor": 0.0, "justificativa": "", "status": "Pago", "data_lancamento": datetime.now().date()}
 
-    # Renderização garantida: o formulário usa uma chave dinâmica baseada no ID ativo do filtro
+    # Renderização garantida: a chave muda dinamicamente baseado no ID do filtro ativo + o contador de submits
     with st.form(key=f"form_sidebar_{id_usuario_filtrado}_{st.session_state.form_count}"):
         if contas_existentes:
             opcoes_conta = ["+ Adicionar Nova Conta"] + contas_existentes
