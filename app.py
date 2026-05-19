@@ -252,19 +252,22 @@ def total_grupo_com_sinal(df, nat):
 # --- AUTENTICAÇÃO ---
 if st.session_state.user is None:
     st.sidebar.title("🔐 Acesso")
-    menu = st.sidebar.radio("Escolha", ["Login", "Criar Conta"])
+    menu = st.sidebar.radio("Escolha", ["Login", "Criar Conta Corporativa"])
     email = st.sidebar.text_input("E-mail").lower().strip()
     senha = st.sidebar.text_input("Senha", type="password")
+    
     if menu == "Login" and st.sidebar.button("Entrar"):
         try:
             res = supabase.auth.sign_in_with_password({"email": email, "password": senha})
             st.session_state.user = res.user
             st.rerun()
         except: st.sidebar.error("E-mail ou senha incorretos.")
-    elif menu == "Criar Conta" and st.sidebar.button("Cadastrar"):
+        
+    elif menu == "Criar Conta Corporativa" and st.sidebar.button("Cadastrar Nova Empresa"):
         try:
+            # Fluxo isolado e seguro de criação de contas
             supabase.auth.sign_up({"email": email, "password": senha})
-            st.sidebar.success("Conta criada! Faça o login agora.")
+            st.sidebar.success("Conta criada! Altere o menu para 'Login' para acessar.")
         except Exception as e:
             st.sidebar.error(f"Erro ao cadastrar: {e}")
     st.stop()
@@ -302,22 +305,26 @@ with st.sidebar:
     else:
         id_usuario_filtrado = st.session_state.user.id
     
-    # IMPORTANTE: df_temp serve para buscar as contas do usuário contextualizado
+    # IMPORTANTE: Carrega os dados reais do usuário selecionado para os relatórios
     df_temp = carregar_dados(st.session_state.user.id, id_usuario_filtrado)
     
-    # Trava de Segurança do Formulário para o Administrador
+    # --- ISOLAMENTO TOTAL DO FORMULÁRIO DO ADMIN ---
     permite_lancar = True
     if is_admin() and id_usuario_filtrado == "Todos":
         permite_lancar = False
-        st.warning("⚠️ Para realizar novos lançamentos próprios, altere o filtro acima para 'Meu Usuário (Admin)'.")
+        st.warning("⚠️ Para criar uma nova conta contábil ou realizar lançamentos próprios, altere o filtro acima para 'Meu Usuário (Admin)'.")
     elif is_admin() and id_usuario_filtrado != st.session_state.user.id:
         permite_lancar = False
-        st.error("🚫 Bloqueado. Você não pode inserir ou modificar lançamentos na conta de outros usuários.")
+        st.error("🚫 Bloqueado. Você está visualizando a conta de um usuário. Mude o filtro para 'Meu Usuário (Admin)' para criar contas e lançar seus dados.")
 
     if permite_lancar:
-        if st.session_state.edit_id and not df_temp.empty:
+        # Aqui o Admin está isolado em seu próprio ID (st.session_state.user.id)
+        # Carregamos apenas os lançamentos dele para montar o selectbox de contas existentes de forma limpa
+        df_proprio = carregar_dados(st.session_state.user.id, st.session_state.user.id)
+        
+        if st.session_state.edit_id and not df_proprio.empty:
             st.header("📝 Editar Lançamento")
-            linhas_para_editar = df_temp[df_temp['id'] == st.session_state.edit_id]
+            linhas_para_editar = df_proprio[df_proprio['id'] == st.session_state.edit_id]
             reg = linhas_para_editar.iloc[0] if not linhas_para_editar.empty else {"descricao": "", "natureza": "Ativo Circulante", "tipo": "Débito", "valor": 0.0, "justificativa": "", "status": "Pago", "data_lancamento": datetime.now().date()}
             if st.button("Cancelar Edição"):
                 st.session_state.edit_id = None
@@ -327,7 +334,7 @@ with st.sidebar:
             reg = {"descricao": "", "natureza": "Ativo Circulante", "tipo": "Débito", "valor": 0.0, "justificativa": "", "status": "Pago", "data_lancamento": datetime.now().date()}
 
         with st.form(key=f"contabil_form_{st.session_state.form_count}"):
-            contas_existentes = sorted(df_temp['descricao'].unique().tolist()) if not df_temp.empty else []
+            contas_existentes = sorted(df_proprio['descricao'].unique().tolist()) if not df_proprio.empty else []
             opcoes_conta = ["+ Adicionar Nova Conta"] + contas_existentes
             idx_conta = opcoes_conta.index(reg['descricao']) if reg['descricao'] in contas_existentes else 0
             conta_sel = st.selectbox("Selecione a Conta", opcoes_conta, index=idx_conta)
@@ -347,7 +354,7 @@ with st.sidebar:
             just_input = st.text_area("Justificativa", value=reg['justificativa'])
             
             if st.form_submit_button("Confirmar"):
-                # Garante que salva no ID correto (sempre o do usuário logado)
+                # O user_id aqui é forçado estritamente para o Admin logado. Ninguém mais é afetado.
                 payload = {"user_id": st.session_state.user.id, "descricao": desc_input, "natureza": nat, "tipo": tipo, "valor": valor, "justificativa": just_input, "status": status_pag, "data_lancamento": str(data_f)}
                 if st.session_state.edit_id: supabase.table("lancamentos").update(payload).eq("id", st.session_state.edit_id).execute()
                 else: supabase.table("lancamentos").insert(payload).execute()
@@ -473,7 +480,6 @@ else:
             
         for _, row in df_base.sort_values('data_lancamento', ascending=False).iterrows():
             with st.expander(f"{row['data_lancamento']} | {row['descricao']} | R$ {row['valor']:,.2f}"):
-                # Verificação Estrita: Só renderiza botões de ação se o dono do registro for o usuário logado
                 if row['user_id'] == st.session_state.user.id:
                     c1, c2 = st.columns(2)
                     if c1.button("✏️ Editar", key=f"ed_{row['id']}"):
