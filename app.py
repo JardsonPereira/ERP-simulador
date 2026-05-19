@@ -362,78 +362,86 @@ with st.sidebar:
         st.session_state.user = None
         st.session_state.tem_perfil = False
         st.rerun()
-    st.divider()
+    st.sidebar.divider()
     
     if is_admin():
         st.header("🔍 Painel Admin")
         dict_usuarios = obter_todos_usuarios_mapeados()
         nome_selecionado = st.selectbox("Filtrar lançamentos de:", list(dict_usuarios.keys()))
         id_usuario_filtrado = dict_usuarios[nome_selecionado]
-        st.divider()
+        st.sidebar.divider()
     
+    # IMPORTANTE: Carrega os dados para alimentar a memória de contas existentes do filtro atual
     df_temp = carregar_dados(st.session_state.user.id, id_usuario_filtrado)
     
-    if is_admin() and id_usuario_filtrado == "Todos" and not st.session_state.edit_id:
-        st.info("💡 Para criar um novo razonete/lançamento, selecione um usuário específico ou a opção 'Meu Usuário (Admin)' no filtro acima.")
-    else:
-        if st.session_state.edit_id and not df_temp.empty:
-            st.header("📝 Editar Lançamento")
-            linhas_para_editar = df_temp[df_temp['id'] == st.session_state.edit_id]
-            if not linhas_para_editar.empty:
-                reg = linhas_para_editar.iloc[0]
-            else:
-                reg = {"descricao": "", "natureza": "Ativo Circulante", "tipo": "Débito", "valor": 0.0, "justificativa": "", "status": "Pago", "data_lancamento": datetime.now().date()}
-                st.session_state.edit_id = None
-                
-            if st.button("Cancelar Edição"):
-                st.session_state.edit_id = None
-                st.rerun()
+    # --- FORMULÁRIO COMPACTO E SEMPRE VISÍVEL NA BARRA LATERAL ---
+    if st.session_state.edit_id and not df_temp.empty:
+        st.header("📝 Editar Lançamento")
+        linhas_para_editar = df_temp[df_temp['id'] == st.session_state.edit_id]
+        if not linhas_para_editar.empty:
+            reg = linhas_para_editar.iloc[0]
         else:
-            st.header("➕ Novo Lançamento")
             reg = {"descricao": "", "natureza": "Ativo Circulante", "tipo": "Débito", "valor": 0.0, "justificativa": "", "status": "Pago", "data_lancamento": datetime.now().date()}
+            st.session_state.edit_id = None
+            
+        if st.button("Cancelar Edição"):
+            st.session_state.edit_id = None
+            st.rerun()
+    else:
+        st.header("➕ Novo Lançamento")
+        reg = {"descricao": "", "natureza": "Ativo Circulante", "tipo": "Débito", "valor": 0.0, "justificativa": "", "status": "Pago", "data_lancamento": datetime.now().date()}
 
-        with st.form(key=f"contabil_form_{st.session_state.form_count}"):
-            # CORREÇÃO CRÍTICA AQUI: Se a base do usuário estiver vazia (como no caso do Admin novinho), 
-            # nós criamos a lista contendo APENAS a opção de adicionar e pulamos o cálculo de indexação dinâmico.
-            if not df_temp.empty and 'descricao' in df_temp.columns and df_temp['descricao'].dropna().unique().size > 0:
-                contas_existentes = sorted(df_temp['descricao'].dropna().unique().tolist())
-                opcoes_conta = ["+ Adicionar Nova Conta"] + contas_existentes
-                idx_conta = opcoes_conta.index(reg['descricao']) if reg['descricao'] in contas_existentes else 0
-                conta_sel = st.selectbox("Selecione a Conta", opcoes_conta, index=idx_conta)
-            else:
-                opcoes_conta = ["+ Adicionar Nova Conta"]
-                conta_sel = st.selectbox("Selecione a Conta", opcoes_conta, index=0)
-            
-            desc_input = st.text_input("Nome da Conta", value=reg['descricao']).upper().strip() if conta_sel == "+ Adicionar Nova Conta" else conta_sel
-            data_f = st.date_input("Data", value=reg['data_lancamento'])
-            
-            grupos = ["Ativo Circulante", "Ativo Não Circulante", "Passivo Circulante", "Passivo Não Circulante", "Patrimônio Líquido", "Receita", "Despesa", "Encargos Financeiros"]
-            
-            idx_inicial_grupo = grupos.index(reg['natureza']) if reg['natureza'] in grupos else 0
-            if conta_sel == "+ Adicionar Nova Conta" and desc_input:
-                if "RECEBER" in desc_input or "CLIENTE" in desc_input: idx_inicial_grupo = grupos.index("Ativo Circulante")
-                elif "VEICULO" in desc_input or "IMOBILIZADO" in desc_input: idx_inicial_grupo = grupos.index("Ativo Não Circulante")
+    with st.form(key=f"contabil_form_estavel"):
+        # Se houver histórico na base do filtro, popula as contas antigas. Se não, isola na criação.
+        if not df_temp.empty and 'descricao' in df_temp.columns and df_temp['descricao'].dropna().unique().size > 0:
+            contas_existentes = sorted(df_temp['descricao'].dropna().unique().tolist())
+            opcoes_conta = ["+ Adicionar Nova Conta"] + contas_existentes
+            idx_conta = opcoes_conta.index(reg['descricao']) if reg['descricao'] in contas_existentes else 0
+            conta_sel = st.selectbox("Selecione a Conta", opcoes_conta, index=idx_conta)
+        else:
+            opcoes_conta = ["+ Adicionar Nova Conta"]
+            conta_sel = st.selectbox("Selecione a Conta", opcoes_conta, index=0)
+        
+        desc_input = st.text_input("Nome da Conta", value=reg['descricao']).upper().strip() if conta_sel == "+ Adicionar Nova Conta" else conta_sel
+        data_f = st.date_input("Data", value=reg['data_lancamento'])
+        
+        grupos = ["Ativo Circulante", "Ativo Não Circulante", "Passivo Circulante", "Passivo Não Circulante", "Patrimônio Líquido", "Receita", "Despesa", "Encargos Financeiros"]
+        
+        idx_inicial_grupo = grupos.index(reg['natureza']) if reg['natureza'] in grupos else 0
+        if conta_sel == "+ Adicionar Nova Conta" and desc_input:
+            if "RECEBER" in desc_input or "CLIENTE" in desc_input: idx_inicial_grupo = grupos.index("Ativo Circulante")
+            elif "VEICULO" in desc_input or "IMOBILIZADO" in desc_input: idx_inicial_grupo = grupos.index("Ativo Não Circulante")
 
-            nat = st.selectbox("Grupo (Classificação Contábil)", grupos, index=idx_inicial_grupo)
-            tipo = st.radio("Operação", ["Débito", "Crédito"], index=0 if reg['tipo'] == "Débito" else 1, horizontal=True)
-            valor = st.number_input("Valor", min_value=0.0, value=float(reg['valor']))
+        nat = st.selectbox("Grupo (Classificação Contábil)", grupos, index=idx_inicial_grupo)
+        tipo = st.radio("Operação", ["Débito", "Crédito"], index=0 if reg['tipo'] == "Débito" else 1, horizontal=True)
+        valor = st.number_input("Valor", min_value=0.0, value=float(reg['valor']))
+        
+        opcoes_status = ["Pago", "Entrada", "Pendente", "Investimento", "Transferência Interna"]
+        status_pag = st.selectbox("Status", opcoes_status, index=opcoes_status.index(reg['status']) if reg['status'] in opcoes_status else 0)
+        just_input = st.text_area("Justificativa", value=reg['justificativa'])
+        
+        # Lógica inteligente do botão Confirmar: bloqueia se o Admin estiver visualizando a base global de "Todos"
+        is_disabled = is_admin() and id_usuario_filtrado == "Todos" and not st.session_state.edit_id
+        
+        if is_disabled:
+            st.warning("⚠️ Selecione um usuário ou 'Meu Usuário (Admin)' acima para liberar o salvamento.")
             
-            opcoes_status = ["Pago", "Entrada", "Pendente", "Investimento", "Transferência Interna"]
-            status_pag = st.selectbox("Status", opcoes_status, index=opcoes_status.index(reg['status']) if reg['status'] in opcoes_status else 0)
-            just_input = st.text_area("Justificativa", value=reg['justificativa'])
+        botao_confirmar = st.form_submit_button("Confirmar", disabled=is_disabled)
+        
+        if botao_confirmar:
+            user_dono = reg.get('user_id', id_usuario_filtrado) if st.session_state.edit_id else id_usuario_filtrado
             
-            if st.form_submit_button("Confirmar"):
-                user_dono = reg.get('user_id', id_usuario_filtrado) if st.session_state.edit_id else id_usuario_filtrado
+            if user_dono == "Todos":
+                user_dono = st.session_state.user.id
                 
-                if user_dono == "Todos":
-                    user_dono = st.session_state.user.id
-                    
-                payload = {"user_id": user_dono, "descricao": desc_input, "natureza": nat, "tipo": tipo, "valor": valor, "justificativa": just_input, "status": status_pag, "data_lancamento": str(data_f)}
-                if st.session_state.edit_id: supabase.table("lancamentos").update(payload).eq("id", st.session_state.edit_id).execute()
-                else: supabase.table("lancamentos").insert(payload).execute()
-                st.session_state.edit_id = None
-                st.session_state.form_count += 1
-                st.rerun()
+            payload = {"user_id": user_dono, "descricao": desc_input, "natureza": nat, "tipo": tipo, "valor": valor, "justificativa": just_input, "status": status_pag, "data_lancamento": str(data_f)}
+            if st.session_state.edit_id: 
+                supabase.table("lancamentos").update(payload).eq("id", st.session_state.edit_id).execute()
+            else: 
+                supabase.table("lancamentos").insert(payload).execute()
+            st.session_state.edit_id = None
+            st.session_state.form_count += 1
+            st.rerun()
 
 # --- CARREGAMENTO OFICIAL ---
 df_base = carregar_dados(st.session_state.user.id, id_usuario_filtrado)
@@ -568,7 +576,7 @@ else:
             for conta, valor in agrupar_por_conta(df_fin):
                 st.markdown(f'<div class="dre-subrow"><span>{conta}</span><span>(R$ {valor:,.2f})</span></div>', unsafe_allow_html=True)
                 
-            cor = "#059669" if v_lucro >= 0 else "#dc2626"
+            cor = "#059669" if v_lucrow >= 0 else "#dc2626"
             label_final = "(=) LUCRO LÍQUIDO" if v_lucro >= 0 else "(=) PREJUÍZO LÍQUIDO"
             st.markdown(f'<div class="dre-total" style="color:{cor}; border-top: 2px double #1e293b;">{label_final}: R$ {v_lucro:,.2f}</div>', unsafe_allow_html=True)
 
