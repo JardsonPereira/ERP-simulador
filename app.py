@@ -18,6 +18,16 @@ if 'form_count' not in st.session_state: st.session_state.form_count = 0
 if 'menu_opcao' not in st.session_state: st.session_state.menu_opcao = "📊 Razonetes"
 if 'tem_perfil' not in st.session_state: st.session_state.tem_perfil = False
 
+# Inicialização inteligente da variável de controle de filtros:
+# Se for admin, começa como "Todos". Se for usuário comum, assume o próprio ID para isolar os dados e reativar as funções.
+if st.session_state.user:
+    if st.session_state.user.email == EMAIL_ADMIN:
+        id_usuario_filtrado = "Todos"
+    else:
+        id_usuario_filtrado = st.session_state.user.id
+else:
+    id_usuario_filtrado = "Todos"
+
 try:
     url: str = st.secrets["SUPABASE_URL"]
     key: str = st.secrets["SUPABASE_KEY"]
@@ -56,10 +66,10 @@ def obter_todos_usuarios_mapeados():
         df_lanc = pd.DataFrame(res_lanc.data)
         
         perfis_dict = {}
-        if not df_perfis.empty:
+        if not df_perfis.empty and 'id' in df_perfis.columns and 'nome_usuario' in df_perfis.columns:
             perfis_dict = dict(zip(df_perfis['id'], df_perfis['nome_usuario']))
             
-        if not df_lanc.empty:
+        if not df_lanc.empty and 'user_id' in df_lanc.columns:
             ids_unicos = df_lanc['user_id'].unique().tolist()
             for uid in ids_unicos:
                 if uid in perfis_dict:
@@ -92,85 +102,90 @@ def carregar_dados(u_id, usuario_selecionado="Todos"):
                 'Passivo': 'Passivo Circulante'
             })
         return temp_df
-    except Exception: return pd.DataFrame()
+    except Exception: 
+        return pd.DataFrame()
 
 def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_pl, v_rec_total, v_desp_total, v_ebitda, v_finan_total, v_lucro):
     pdf = FPDF()
     pdf.add_page()
     
+    # Função auxiliar interna para limpar caracteres incompatíveis com o PDF padrão
+    def clean_str(s):
+        return str(s).encode('latin-1', 'ignore').decode('latin-1')
+    
     # Cabeçalho Principal
     pdf.set_font("Arial", "B", 14)
-    pdf.cell(190, 8, "RELATÓRIO CONTÁBIL CONSOLIDADO", ln=True, align="C")
+    pdf.cell(190, 8, clean_str("RELATÓRIO CONTÁBIL CONSOLIDADO"), ln=True, align="C")
     pdf.set_font("Arial", "", 9)
-    pdf.cell(190, 5, f"Usuário: {user_email}", ln=True, align="C")
-    pdf.cell(190, 5, f"Período: {data_i.strftime('%d/%m/%Y')} até {data_f.strftime('%d/%m/%Y')} | Gerado em: {datetime.now().strftime('%d/%m/%Y %H:%M')}", ln=True, align="C")
+    pdf.cell(190, 5, clean_str(f"Usuário: {user_email}"), ln=True, align="C")
+    pdf.cell(190, 5, clean_str(f"Período: {data_i.strftime('%d/%m/%Y')} até {data_f.strftime('%d/%m/%Y')} | Gerado em: {datetime.now().strftime('%d/%m/%Y %H:%M')}"), ln=True, align="C")
     pdf.ln(5)
 
     # 1. FLUXO DE CAIXA
     pdf.set_font("Arial", "B", 11)
-    pdf.cell(190, 7, "1. FLUXO DE CAIXA E VARIAÇÃO", ln=True)
+    pdf.cell(190, 7, clean_str("1. FLUXO DE CAIXA E VARIAÇÃO"), ln=True)
     pdf.set_font("Arial", "", 9)
-    pdf.cell(63, 7, f"Saldo Inicial: R$ {s_ini:,.2f}", border=1)
-    pdf.cell(63, 7, f"Saldo Final: R$ {s_fin:,.2f}", border=1)
-    pdf.cell(64, 7, f"Variação Líquida: R$ {s_fin - s_ini:,.2f}", border=1, ln=True)
+    pdf.cell(63, 7, clean_str(f"Saldo Inicial: R$ {s_ini:,.2f}"), border=1)
+    pdf.cell(63, 7, clean_str(f"Saldo Final: R$ {s_fin:,.2f}"), border=1)
+    pdf.cell(64, 7, clean_str(f"Variação Líquida: R$ {s_fin - s_ini:,.2f}"), border=1, ln=True)
     pdf.ln(4)
 
     # 2. DRE DETALHADA NO PDF
     pdf.set_font("Arial", "B", 11)
-    pdf.cell(190, 7, "2. DEMONSTRAÇÃO DO RESULTADO (DRE DETALHADA)", ln=True)
+    pdf.cell(190, 7, clean_str("2. DEMONSTRAÇÃO DO RESULTADO (DRE DETALHADA)"), ln=True)
     pdf.set_font("Arial", "", 9)
     
     # Seção de Receitas Detalhadas
     pdf.set_font("Arial", "B", 9)
-    pdf.cell(140, 6, "(+) RECEITAS", border=1)
-    pdf.cell(50, 6, f"R$ {v_rec_total:,.2f}", border=1, ln=True, align="R")
+    pdf.cell(140, 6, clean_str("(+) RECEITAS"), border=1)
+    pdf.cell(50, 6, clean_str(f"R$ {v_rec_total:,.2f}"), border=1, ln=True, align="R")
     pdf.set_font("Arial", "", 9)
     df_rec = df_per[df_per['natureza'] == 'Receita']
     for conta, valor in agrupar_por_conta(df_rec):
-        pdf.cell(140, 5.5, f"   {conta}", border=1)
-        pdf.cell(50, 5.5, f"R$ {valor:,.2f}", border=1, ln=True, align="R")
+        pdf.cell(140, 5.5, clean_str(f"   {conta}"), border=1)
+        pdf.cell(50, 5.5, clean_str(f"R$ {valor:,.2f}"), border=1, ln=True, align="R")
         
     # Seção de Despesas Detalhadas
     pdf.set_font("Arial", "B", 9)
-    pdf.cell(140, 6, "(-) DESPESAS OPERACIONAIS", border=1)
-    pdf.cell(50, 6, f"R$ ({v_desp_total:,.2f})", border=1, ln=True, align="R")
+    pdf.cell(140, 6, clean_str("(-) DESPESAS OPERACIONAIS"), border=1)
+    pdf.cell(50, 6, clean_str(f"R$ ({v_desp_total:,.2f})"), border=1, ln=True, align="R")
     pdf.set_font("Arial", "", 9)
     df_desp = df_per[df_per['natureza'] == 'Despesa']
     for conta, valor in agrupar_por_conta(df_desp):
-        pdf.cell(140, 5.5, f"   {conta}", border=1)
-        pdf.cell(50, 5.5, f"R$ ({valor:,.2f})", border=1, ln=True, align="R")
+        pdf.cell(140, 5.5, clean_str(f"   {conta}"), border=1)
+        pdf.cell(50, 5.5, clean_str(f"R$ ({valor:,.2f})"), border=1, ln=True, align="R")
         
     # EBITDA
     pdf.set_font("Arial", "B", 9)
-    pdf.cell(140, 6, "(=) EBITDA", border=1)
-    pdf.cell(50, 6, f"R$ {v_ebitda:,.2f}", border=1, ln=True, align="R")
+    pdf.cell(140, 6, clean_str("(=) EBITDA"), border=1)
+    pdf.cell(50, 6, clean_str(f"R$ {v_ebitda:,.2f}"), border=1, ln=True, align="R")
     
     # Seção de Encargos Financeiros Detalhados
-    pdf.cell(140, 6, "(-) ENCARGOS FINANCEIROS / IMPOSTOS", border=1)
-    pdf.cell(50, 6, f"R$ ({v_finan_total:,.2f})", border=1, ln=True, align="R")
+    pdf.cell(140, 6, clean_str("(-) ENCARGOS FINANCEIROS / IMPOSTOS"), border=1)
+    pdf.cell(50, 6, clean_str(f"R$ ({v_finan_total:,.2f})"), border=1, ln=True, align="R")
     pdf.set_font("Arial", "", 9)
     df_fin = df_per[df_per['natureza'] == 'Encargos Financeiros']
     for conta, valor in agrupar_por_conta(df_fin):
-        pdf.cell(140, 5.5, f"   {conta}", border=1)
-        pdf.cell(50, 5.5, f"R$ ({valor:,.2f})", border=1, ln=True, align="R")
+        pdf.cell(140, 5.5, clean_str(f"   {conta}"), border=1)
+        pdf.cell(50, 5.5, clean_str(f"R$ ({valor:,.2f})"), border=1, ln=True, align="R")
         
     # Resultado Líquido
     pdf.set_font("Arial", "B", 9)
     label_resultado = "(=) LUCRO LÍQUIDO DO PERÍODO" if v_lucro >= 0 else "(=) PREJUÍZO LÍQUIDO DO PERÍODO"
-    pdf.cell(140, 7, label_resultado, border=1)
-    pdf.cell(50, 7, f"R$ {v_lucro:,.2f}", border=1, ln=True, align="R")
+    pdf.cell(140, 7, clean_str(label_resultado), border=1)
+    pdf.cell(50, 7, clean_str(f"R$ {v_lucro:,.2f}"), border=1, ln=True, align="R")
     pdf.ln(4)
 
     # 3. BALANÇO PATRIMONIAL ESTRUTURADO
     pdf.set_font("Arial", "B", 11)
-    pdf.cell(190, 7, "3. BALANÇO PATRIMONIAL CONSOLIDADO", ln=True)
+    pdf.cell(190, 7, clean_str("3. BALANÇO PATRIMONIAL CONSOLIDADO"), ln=True)
     
     # Cabeçalho das Colunas Principais do Balanço
     pdf.set_font("Arial", "B", 10)
-    pdf.cell(65, 7, "ATIVO", border=1, align="C")
-    pdf.cell(30, 7, "Valor (R$)", border=1, align="R")
-    pdf.cell(65, 7, "PASSIVO E PL", border=1, align="C")
-    pdf.cell(30, 7, "Valor (R$)", border=1, align="R")
+    pdf.cell(65, 7, clean_str("ATIVO"), border=1, align="C")
+    pdf.cell(30, 7, clean_str("Valor (R$)"), border=1, align="R")
+    pdf.cell(65, 7, clean_str("PASSIVO E PL"), border=1, align="C")
+    pdf.cell(30, 7, clean_str("Valor (R$)"), border=1, align="R")
     pdf.ln()
 
     df_at_circ = df_per[df_per['natureza'] == 'Ativo Circulante']
@@ -222,7 +237,7 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
         if index < len(linhas_ativo):
             desc_at, val_at, is_bold_at = linhas_ativo[index]
             pdf.set_font("Arial", "B" if is_bold_at else "", 8)
-            pdf.cell(65, 5.5, desc_at, border=1)
+            pdf.cell(65, 5.5, clean_str(desc_at), border=1)
             pdf.cell(30, 5.5, f"{val_at:,.2f}" if val_at is not None else "", border=1, align="R")
         else:
             pdf.cell(65, 5.5, "", border=1)
@@ -231,7 +246,7 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
         if index < len(linhas_passivo_pl):
             desc_pas, val_pas, is_bold_pas = linhas_passivo_pl[index]
             pdf.set_font("Arial", "B" if is_bold_pas else "", 8)
-            pdf.cell(65, 5.5, desc_pas, border=1)
+            pdf.cell(65, 5.5, clean_str(desc_pas), border=1)
             pdf.cell(30, 5.5, f"{val_pas:,.2f}" if val_pas is not None else "", border=1, align="R")
         else:
             pdf.cell(65, 5.5, "", border=1)
@@ -241,21 +256,21 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
     # Rodapé do Balanço
     pdf.set_font("Arial", "B", 9)
     pl_final_calculado = v_pl + v_lucro
-    pdf.cell(65, 6.5, "TOTAL DO ATIVO", border=1)
+    pdf.cell(65, 6.5, clean_str("TOTAL DO ATIVO"), border=1)
     pdf.cell(30, 6.5, f"{v_at:,.2f}", border=1, align="R")
-    pdf.cell(65, 6.5, "TOTAL DO PASSIVO + PL", border=1)
+    pdf.cell(65, 6.5, clean_str("TOTAL DO PASSIVO + PL"), border=1)
     pdf.cell(30, 6.5, f"{v_pas + pl_final_calculado:,.2f}", border=1, align="R")
     pdf.ln(8)
 
     # 4. LANÇAMENTOS DO PERÍODO
     pdf.set_font("Arial", "B", 11)
-    pdf.cell(190, 7, "4. LANÇAMENTOS DO PERÍODO", ln=True)
+    pdf.cell(190, 7, clean_str("4. LANÇAMENTOS DO PERÍODO"), ln=True)
     pdf.set_font("Arial", "B", 8.5)
     
     pdf.cell(20, 6.5, "Data", border=1, align="C")
     pdf.cell(50, 6.5, "Conta", border=1)
     pdf.cell(30, 6.5, "Grupo", border=1)
-    pdf.cell(20, 6.5, "Operação", border=1, align="C")
+    pdf.cell(20, 6.5, clean_str("Operação"), border=1, align="C")
     pdf.cell(25, 6.5, "Valor", border=1, align="R")
     pdf.cell(45, 6.5, "Status/Justificativa", border=1)
     pdf.ln()
@@ -269,15 +284,15 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
             grupo_nome = r['natureza'][:15]
             just = r['justificativa'][:25] if r['justificativa'] else r['status']
             
-            pdf.cell(20, 5.5, data_formatada, border=1, align="C")
-            pdf.cell(50, 5.5, desc, border=1)
-            pdf.cell(30, 5.5, grupo_nome, border=1) 
-            pdf.cell(20, 5.5, r['tipo'], border=1, align="C")
+            pdf.cell(20, 5.5, clean_str(data_formatada), border=1, align="C")
+            pdf.cell(50, 5.5, clean_str(desc), border=1)
+            pdf.cell(30, 5.5, clean_str(grupo_nome), border=1) 
+            pdf.cell(20, 5.5, clean_str(r['tipo']), border=1, align="C")
             pdf.cell(25, 5.5, f"R$ {r['valor']:,.2f}", border=1, align="R")
-            pdf.cell(45, 5.5, just, border=1)
+            pdf.cell(45, 5.5, clean_str(just), border=1)
             pdf.ln()
     else:
-        pdf.cell(190, 6, "Nenhum lançamento encontrado no período selecionado.", border=1, align="C", ln=True)
+        pdf.cell(190, 6, clean_str("Nenhum lançamento encontrado no período selecionado."), border=1, align="C", ln=True)
 
     return pdf.output()
 
@@ -357,7 +372,6 @@ with st.sidebar:
         st.rerun()
     st.divider()
     
-    id_usuario_filtrado = "Todos"
     if is_admin():
         st.header("🔍 Painel Admin")
         dict_usuarios = obter_todos_usuarios_mapeados()
@@ -417,7 +431,7 @@ with st.sidebar:
             st.rerun()
 
 # --- CARREGAMENTO OFICIAL ---
-df_base = carregar_dados(st.session_state.user.id, id_usuario_filtrado if 'id_usuario_filtrado' in locals() else "Todos")
+df_base = carregar_dados(st.session_state.user.id, id_usuario_filtrado)
 
 # --- CSS ---
 st.markdown("""<style>
