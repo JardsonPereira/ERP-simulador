@@ -58,9 +58,9 @@ def obter_todos_usuarios_mapeados():
     """Busca os nomes dos usuários na tabela perfis para alimentar o filtro do Admin"""
     mapeamento = {"Todos os Usuários": "Todos"}
     
-    # Insere o Administrador diretamente para que ele sempre apareça na lista de seleção
+    # GARANTIA ABSOLUTA: Insere o Admin no dicionário para que ele sempre seja uma opção selecionável
     if st.session_state.user:
-        mapeamento[f"Admin ({st.session_state.user.email})"] = st.session_state.user.id
+        mapeamento[f"Meu Usuário (Admin)"] = st.session_state.user.id
 
     try:
         res_perfis = supabase.table("perfis").select("id, nome_usuario").execute()
@@ -77,7 +77,7 @@ def obter_todos_usuarios_mapeados():
             ids_unicos = df_lanc['user_id'].unique().tolist()
             for uid in ids_unicos:
                 if uid == st.session_state.user.id:
-                    continue
+                    continue  # Ignora para não duplicar a opção do Admin criada no topo
                 if uid in perfis_dict:
                     mapeamento[perfis_dict[uid]] = uid
                 else:
@@ -107,10 +107,9 @@ def carregar_dados(u_id, usuario_selecionado="Todos"):
             })
             return temp_df
         else:
-            # Blindagem: Se não houver dados, retorna um esqueleto com a coluna necessária
-            return pd.DataFrame(columns=['descricao', 'natureza', 'tipo', 'valor', 'justificativa', 'status', 'data_lancamento'])
+            return pd.DataFrame(columns=['descricao', 'natureza', 'tipo', 'valor', 'justificativa', 'status', 'data_lancamento', 'user_id'])
     except Exception: 
-        return pd.DataFrame(columns=['descricao', 'natureza', 'tipo', 'valor', 'justificativa', 'status', 'data_lancamento'])
+        return pd.DataFrame(columns=['descricao', 'natureza', 'tipo', 'valor', 'justificativa', 'status', 'data_lancamento', 'user_id'])
 
 def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_pl, v_rec_total, v_desp_total, v_ebitda, v_finan_total, v_lucro):
     pdf = FPDF()
@@ -119,7 +118,6 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
     def clean_str(s):
         return str(s).encode('latin-1', 'ignore').decode('latin-1')
     
-    # Cabeçalho Principal
     pdf.set_font("Arial", "B", 14)
     pdf.cell(190, 8, clean_str("RELATÓRIO CONTÁBIL CONSOLIDADO"), ln=True, align="C")
     pdf.set_font("Arial", "", 9)
@@ -141,41 +139,36 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
     pdf.cell(190, 7, clean_str("2. DEMONSTRAÇÃO DO RESULTADO (DRE DETALHADA)"), ln=True)
     pdf.set_font("Arial", "", 9)
     
-    # Seção de Receitas Detalhadas
     pdf.set_font("Arial", "B", 9)
     pdf.cell(140, 6, clean_str("(+) RECEITAS"), border=1)
     pdf.cell(50, 6, clean_str(f"R$ {v_rec_total:,.2f}"), border=1, ln=True, align="R")
     pdf.set_font("Arial", "", 9)
-    df_rec = df_per[df_per['natureza'] == 'Receita']
+    df_rec = df_per[df_per['natureza'] == 'Receita'] if not df_per.empty else pd.DataFrame()
     for conta, valor in agrupar_por_conta(df_rec):
         pdf.cell(140, 5.5, clean_str(f"   {conta}"), border=1)
         pdf.cell(50, 5.5, clean_str(f"R$ {valor:,.2f}"), border=1, ln=True, align="R")
         
-    # Seção de Despesas Detalhadas
     pdf.set_font("Arial", "B", 9)
     pdf.cell(140, 6, clean_str("(-) DESPESAS OPERACIONAIS"), border=1)
     pdf.cell(50, 6, clean_str(f"R$ ({v_desp_total:,.2f})"), border=1, ln=True, align="R")
     pdf.set_font("Arial", "", 9)
-    df_desp = df_per[df_per['natureza'] == 'Despesa']
+    df_desp = df_per[df_per['natureza'] == 'Despesa'] if not df_per.empty else pd.DataFrame()
     for conta, valor in agrupar_por_conta(df_desp):
         pdf.cell(140, 5.5, clean_str(f"   {conta}"), border=1)
         pdf.cell(50, 5.5, clean_str(f"R$ ({valor:,.2f})"), border=1, ln=True, align="R")
         
-    # EBITDA
     pdf.set_font("Arial", "B", 9)
     pdf.cell(140, 6, clean_str("(=) EBITDA"), border=1)
     pdf.cell(50, 6, clean_str(f"R$ {v_ebitda:,.2f}"), border=1, ln=True, align="R")
     
-    # Seção de Encargos Financeiros Detalhados
     pdf.cell(140, 6, clean_str("(-) ENCARGOS FINANCEIROS / IMPOSTOS"), border=1)
     pdf.cell(50, 6, clean_str(f"R$ ({v_finan_total:,.2f})"), border=1, ln=True, align="R")
     pdf.set_font("Arial", "", 9)
-    df_fin = df_per[df_per['natureza'] == 'Encargos Financeiros']
+    df_fin = df_per[df_per['natureza'] == 'Encargos Financeiros'] if not df_per.empty else pd.DataFrame()
     for conta, valor in agrupar_por_conta(df_fin):
         pdf.cell(140, 5.5, clean_str(f"   {conta}"), border=1)
         pdf.cell(50, 5.5, clean_str(f"R$ ({valor:,.2f})"), border=1, ln=True, align="R")
         
-    # Resultado Líquido
     pdf.set_font("Arial", "B", 9)
     label_resultado = "(=) LUCRO LÍQUIDO DO PERÍODO" if v_lucro >= 0 else "(=) PREJUÍZO LÍQUIDO DO PERÍODO"
     pdf.cell(140, 7, clean_str(label_resultado), border=1)
@@ -186,7 +179,6 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
     pdf.set_font("Arial", "B", 11)
     pdf.cell(190, 7, clean_str("3. BALANÇO PATRIMONIAL CONSOLIDADO"), ln=True)
     
-    # Cabeçalho das Colunas Principais do Balanço
     pdf.set_font("Arial", "B", 10)
     pdf.cell(65, 7, clean_str("ATIVO"), border=1, align="C")
     pdf.cell(30, 7, clean_str("Valor (R$)"), border=1, align="R")
@@ -194,40 +186,35 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
     pdf.cell(30, 7, clean_str("Valor (R$)"), border=1, align="R")
     pdf.ln()
 
-    df_at_circ = df_per[df_per['natureza'] == 'Ativo Circulante']
-    df_at_nc = df_per[df_per['natureza'] == 'Ativo Não Circulante']
-    df_pass_circ = df_per[df_per['natureza'] == 'Passivo Circulante']
-    df_pass_nc = df_per[df_per['natureza'] == 'Passivo Não Circulante']
-    filt_pl = df_per[df_per['natureza'] == 'Patrimônio Líquido']
+    df_at_circ = df_per[df_per['natureza'] == 'Ativo Circulante'] if not df_per.empty else pd.DataFrame()
+    df_at_nc = df_per[df_per['natureza'] == 'Ativo Não Circulante'] if not df_per.empty else pd.DataFrame()
+    df_pass_circ = df_per[df_per['natureza'] == 'Passivo Circulante'] if not df_per.empty else pd.DataFrame()
+    df_pass_nc = df_per[df_per['natureza'] == 'Passivo Não Circulante'] if not df_per.empty else pd.DataFrame()
+    filt_pl = df_per[df_per['natureza'] == 'Patrimônio Líquido'] if not df_per.empty else pd.DataFrame()
     
     linhas_ativo = []
     linhas_passivo_pl = []
 
-    # Ativo Circulante
     v_at_circ = total_grupo_com_sinal(df_at_circ, 'Ativo Circulante')
     linhas_ativo.append(("ATIVO CIRCULANTE", v_at_circ, True))
     for c, v in agrupar_por_conta(df_at_circ):
         linhas_ativo.append((f"  {c}", v, False))
         
-    # Ativo Não Circulante
     v_at_nc = total_grupo_com_sinal(df_at_nc, 'Ativo Não Circulante')
     linhas_ativo.append(("ATIVO NÃO CIRCULANTE", v_at_nc, True))
     for c, v in agrupar_por_conta(df_at_nc):
         linhas_ativo.append((f"  {c}", v, False))
 
-    # Passivo Circulante
     v_pass_circ = total_grupo_com_sinal(df_pass_circ, 'Passivo Circulante')
     linhas_passivo_pl.append(("PASSIVO CIRCULANTE", v_pass_circ, True))
     for c, v in agrupar_por_conta(df_pass_circ):
         linhas_passivo_pl.append((f"  {c}", v, False))
         
-    # Passivo Não Circulante
     v_pass_nc = total_grupo_com_sinal(df_pass_nc, 'Passivo Não Circulante')
     linhas_passivo_pl.append(("PASSIVO NÃO CONVERTIDO / LONGO PRAZO", v_pass_nc, True))
     for c, v in agrupar_por_conta(df_pass_nc):
         linhas_passivo_pl.append((f"  {c}", v, False))
         
-    # Bloco Patrimônio Líquido
     linhas_passivo_pl.append(("", None, False))
     linhas_passivo_pl.append(("PATRIMÔNIO LÍQUIDO", None, True))
     for c, v in agrupar_por_conta(filt_pl):
@@ -259,7 +246,6 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
             pdf.cell(30, 5.5, "", border=1)
         pdf.ln()
 
-    # Rodapé do Balanço
     pdf.set_font("Arial", "B", 9)
     pl_final_calculado = v_pl + v_lucro
     pdf.cell(65, 6.5, clean_str("TOTAL DO ATIVO"), border=1)
@@ -385,10 +371,11 @@ with st.sidebar:
         id_usuario_filtrado = dict_usuarios[nome_selecionado]
         st.divider()
     
+    # IMPORTANTE: df_temp carrega as informações exclusivas da pessoa selecionada na barra lateral
     df_temp = carregar_dados(st.session_state.user.id, id_usuario_filtrado)
     
     if is_admin() and id_usuario_filtrado == "Todos" and not st.session_state.edit_id:
-        st.info("💡 Para criar um novo razonete/lançamento, selecione um usuário específico no filtro acima.")
+        st.info("💡 Para criar um novo razonete/lançamento, selecione um usuário específico ou a opção 'Meu Usuário (Admin)' no filtro acima.")
     else:
         if st.session_state.edit_id and not df_temp.empty:
             st.header("📝 Editar Lançamento")
