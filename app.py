@@ -19,7 +19,6 @@ if 'menu_opcao' not in st.session_state: st.session_state.menu_opcao = "📊 Raz
 if 'tem_perfil' not in st.session_state: st.session_state.tem_perfil = False
 
 # Inicialização inteligente da variável de controle de filtros:
-# Se for admin, começa como "Todos". Se for usuário comum, assume o próprio ID para isolar os dados e reativar as funções.
 if st.session_state.user:
     if st.session_state.user.email == EMAIL_ADMIN:
         id_usuario_filtrado = "Todos"
@@ -109,7 +108,6 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
     pdf = FPDF()
     pdf.add_page()
     
-    # Função auxiliar interna para limpar caracteres incompatíveis com o PDF padrão
     def clean_str(s):
         return str(s).encode('latin-1', 'ignore').decode('latin-1')
     
@@ -244,7 +242,7 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
             pdf.cell(30, 5.5, "", border=1)
 
         if index < len(linhas_passivo_pl):
-            desc_pas, val_pas, is_bold_pas = linhas_passivo_pl[index]
+            desc_pas, val_pas, is_bold_pas = lines_passivo_pl[index]
             pdf.set_font("Arial", "B" if is_bold_pas else "", 8)
             pdf.cell(65, 5.5, clean_str(desc_pas), border=1)
             pdf.cell(30, 5.5, f"{val_pas:,.2f}" if val_pas is not None else "", border=1, align="R")
@@ -379,56 +377,67 @@ with st.sidebar:
         id_usuario_filtrado = dict_usuarios[nome_selecionado]
         st.divider()
     
+    # Busca a base correta para alimentar as opções do formulário
     df_temp = carregar_dados(st.session_state.user.id, id_usuario_filtrado)
     
-    if st.session_state.edit_id and not df_temp.empty:
-        st.header("📝 Editar Lançamento")
-        linhas_para_editar = df_temp[df_temp['id'] == st.session_state.edit_id]
-        if not linhas_para_editar.empty:
-            reg = linhas_para_editar.iloc[0]
-        else:
-            reg = {"descricao": "", "natureza": "Ativo Circulante", "tipo": "Débito", "valor": 0.0, "justificativa": "", "status": "Pago", "data_lancamento": datetime.now().date()}
-            st.session_state.edit_id = None
-            
-        if st.button("Cancelar Edição"):
-            st.session_state.edit_id = None
-            st.rerun()
+    # Bloqueio visual/segurança inteligente para o Admin no modo "Todos"
+    if is_admin() and id_usuario_filtrado == "Todos" and not st.session_state.edit_id:
+        st.info("💡 Para criar um novo razonete/lançamento, selecione um usuário específico no filtro acima.")
     else:
-        st.header("➕ Novo Lançamento")
-        reg = {"descricao": "", "natureza": "Ativo Circulante", "tipo": "Débito", "valor": 0.0, "justificativa": "", "status": "Pago", "data_lancamento": datetime.now().date()}
+        if st.session_state.edit_id and not df_temp.empty:
+            st.header("📝 Editar Lançamento")
+            linhas_para_editar = df_temp[df_temp['id'] == st.session_state.edit_id]
+            if not linhas_para_editar.empty:
+                reg = linhas_para_editar.iloc[0]
+            else:
+                reg = {"descricao": "", "natureza": "Ativo Circulante", "tipo": "Débito", "valor": 0.0, "justificativa": "", "status": "Pago", "data_lancamento": datetime.now().date()}
+                st.session_state.edit_id = None
+                
+            if st.button("Cancelar Edição"):
+                st.session_state.edit_id = None
+                st.rerun()
+        else:
+            st.header("➕ Novo Lançamento")
+            reg = {"descricao": "", "natureza": "Ativo Circulante", "tipo": "Débito", "valor": 0.0, "justificativa": "", "status": "Pago", "data_lancamento": datetime.now().date()}
 
-    with st.form(key=f"contabil_form_{st.session_state.form_count}"):
-        contas_existentes = sorted(df_temp['descricao'].unique().tolist()) if not df_temp.empty else []
-        opcoes_conta = ["+ Adicionar Nova Conta"] + contas_existentes
-        idx_conta = opcoes_conta.index(reg['descricao']) if reg['descricao'] in contas_existentes else 0
-        conta_sel = st.selectbox("Selecione a Conta", opcoes_conta, index=idx_conta)
-        
-        desc_input = st.text_input("Nome da Conta", value=reg['descricao']).upper().strip() if conta_sel == "+ Adicionar Nova Conta" else conta_sel
-        data_f = st.date_input("Data", value=reg['data_lancamento'])
-        
-        grupos = ["Ativo Circulante", "Ativo Não Circulante", "Passivo Circulante", "Passivo Não Circulante", "Patrimônio Líquido", "Receita", "Despesa", "Encargos Financeiros"]
-        
-        idx_inicial_grupo = grupos.index(reg['natureza']) if reg['natureza'] in grupos else 0
-        if conta_sel == "+ Adicionar Nova Conta" and desc_input:
-            if "RECEBER" in desc_input or "CLIENTE" in desc_input: idx_inicial_grupo = grupos.index("Ativo Circulante")
-            elif "VEICULO" in desc_input or "IMOBILIZADO" in desc_input: idx_inicial_grupo = grupos.index("Ativo Não Circulante")
+        with st.form(key=f"contabil_form_{st.session_state.form_count}"):
+            contas_existentes = sorted(df_temp['descricao'].unique().tolist()) if not df_temp.empty else []
+            opcoes_conta = ["+ Adicionar Nova Conta"] + contas_existentes
+            idx_conta = opcoes_conta.index(reg['descricao']) if reg['descricao'] in contas_existentes else 0
+            conta_sel = st.selectbox("Selecione a Conta", opcoes_conta, index=idx_conta)
+            
+            desc_input = st.text_input("Nome da Conta", value=reg['descricao']).upper().strip() if conta_sel == "+ Adicionar Nova Conta" else conta_sel
+            data_f = st.date_input("Data", value=reg['data_lancamento'])
+            
+            grupos = ["Ativo Circulante", "Ativo Não Circulante", "Passivo Circulante", "Passivo Não Circulante", "Patrimônio Líquido", "Receita", "Despesa", "Encargos Financeiros"]
+            
+            idx_inicial_grupo = grupos.index(reg['natureza']) if reg['natureza'] in grupos else 0
+            if conta_sel == "+ Adicionar Nova Conta" and desc_input:
+                if "RECEBER" in desc_input or "CLIENTE" in desc_input: idx_inicial_grupo = grupos.index("Ativo Circulante")
+                elif "VEICULO" in desc_input or "IMOBILIZADO" in desc_input: idx_inicial_grupo = grupos.index("Ativo Não Circulante")
 
-        nat = st.selectbox("Grupo (Classificação Contábil)", grupos, index=idx_inicial_grupo)
-        tipo = st.radio("Operação", ["Débito", "Crédito"], index=0 if reg['tipo'] == "Débito" else 1, horizontal=True)
-        valor = st.number_input("Valor", min_value=0.0, value=float(reg['valor']))
-        
-        opcoes_status = ["Pago", "Entrada", "Pendente", "Investimento", "Transferência Interna"]
-        status_pag = st.selectbox("Status", opcoes_status, index=opcoes_status.index(reg['status']) if reg['status'] in opcoes_status else 0)
-        just_input = st.text_area("Justificativa", value=reg['justificativa'])
-        
-        if st.form_submit_button("Confirmar"):
-            user_dono = reg.get('user_id', st.session_state.user.id) if st.session_state.edit_id else st.session_state.user.id
-            payload = {"user_id": user_dono, "descricao": desc_input, "natureza": nat, "tipo": tipo, "valor": valor, "justificativa": just_input, "status": status_pag, "data_lancamento": str(data_f)}
-            if st.session_state.edit_id: supabase.table("lancamentos").update(payload).eq("id", st.session_state.edit_id).execute()
-            else: supabase.table("lancamentos").insert(payload).execute()
-            st.session_state.edit_id = None
-            st.session_state.form_count += 1
-            st.rerun()
+            nat = st.selectbox("Grupo (Classificação Contábil)", grupos, index=idx_inicial_grupo)
+            tipo = st.radio("Operação", ["Débito", "Crédito"], index=0 if reg['tipo'] == "Débito" else 1, horizontal=True)
+            valor = st.number_input("Valor", min_value=0.0, value=float(reg['valor']))
+            
+            opcoes_status = ["Pago", "Entrada", "Pendente", "Investimento", "Transferência Interna"]
+            status_pag = st.selectbox("Status", opcoes_status, index=opcoes_status.index(reg['status']) if reg['status'] in opcoes_status else 0)
+            just_input = st.text_area("Justificativa", value=reg['justificativa'])
+            
+            if st.form_submit_button("Confirmar"):
+                # Define dinamicamente o dono do lançamento baseado na sua seleção do Admin
+                user_dono = reg.get('user_id', id_usuario_filtrado) if st.session_state.edit_id else id_usuario_filtrado
+                
+                # Se ainda estiver como "Todos" por erro forçado, salva no seu próprio ID de Admin
+                if user_dono == "Todos":
+                    user_dono = st.session_state.user.id
+                    
+                payload = {"user_id": user_dono, "descricao": desc_input, "natureza": nat, "tipo": tipo, "valor": valor, "justificativa": just_input, "status": status_pag, "data_lancamento": str(data_f)}
+                if st.session_state.edit_id: supabase.table("lancamentos").update(payload).eq("id", st.session_state.edit_id).execute()
+                else: supabase.table("lancamentos").insert(payload).execute()
+                st.session_state.edit_id = None
+                st.session_state.form_count += 1
+                st.rerun()
 
 # --- CARREGAMENTO OFICIAL ---
 df_base = carregar_dados(st.session_state.user.id, id_usuario_filtrado)
