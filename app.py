@@ -48,31 +48,31 @@ def verificar_perfil(u_id):
         return False
 
 def obter_todos_usuarios_mapeados():
-    """Busca os nomes dos usuários na tabela perfis para alimentar o filtro do Admin"""
+    """Busca TODOS os usuários cadastrados na tabela perfis, independente de terem lançamentos ou não"""
     mapeamento = {"Todos os Usuários": "Todos"}
     try:
+        # Puxa a lista diretamente de perfis (garante que o usuário nunca some ao resetar)
         res_perfis = supabase.table("perfis").select("id, nome_usuario").execute()
         df_perfis = pd.DataFrame(res_perfis.data)
         
-        res_lanc = supabase.table("lancamentos").select("user_id").execute()
-        df_lanc = pd.DataFrame(res_lanc.data)
-        
-        perfis_dict = {}
         if not df_perfis.empty and 'id' in df_perfis.columns and 'nome_usuario' in df_perfis.columns:
-            perfis_dict = dict(zip(df_perfis['id'], df_perfis['nome_usuario']))
-            
-        if not df_lanc.empty and 'user_id' in df_lanc.columns:
-            ids_unicos = df_lanc['user_id'].unique().tolist()
-            for uid in ids_unicos:
-                if uid in perfis_dict:
-                    mapeamento[perfis_dict[uid]] = uid
-                elif uid == st.session_state.user.id:
-                    mapeamento[f"Meu Usuário (Admin)"] = uid
+            for _, row in df_perfis.iterrows():
+                uid = row['id']
+                nome = row['nome_usuario']
+                
+                # Identifica visualmente quem é o Admin na lista de filtros
+                if uid == st.session_state.user.id:
+                    mapeamento[f"Meu Usuário (Admin) - {nome}"] = uid
                 else:
-                    mapeamento[f"Sem Nome ({uid[:8]}...)"] = uid
+                    mapeamento[nome] = uid
+                    
+        # Caso o admin por algum motivo não tenha criado o perfil ainda, garante ele na lista
+        if f"Meu Usuário (Admin) - {st.session_state.user.email}" not in mapeamento and st.session_state.user.id not in mapeamento.values():
+            mapeamento["Meu Usuário (Admin)"] = st.session_state.user.id
+            
         return mapeamento
     except Exception:
-        return {"Todos os Usuários": "Todos"}
+        return {"Todos os Usuários": "Todos", "Meu Usuário (Admin)": st.session_state.user.id}
 
 def carregar_dados(u_id, usuario_selecionado="Todos"):
     try:
@@ -265,7 +265,6 @@ if st.session_state.user is None:
         
     elif menu == "Criar Conta Corporativa" and st.sidebar.button("Cadastrar Nova Empresa"):
         try:
-            # Fluxo isolado e seguro de criação de contas
             supabase.auth.sign_up({"email": email, "password": senha})
             st.sidebar.success("Conta criada! Altere o menu para 'Login' para acessar.")
         except Exception as e:
@@ -299,27 +298,33 @@ with st.sidebar:
     if is_admin():
         st.header("🔍 Painel Admin")
         dict_usuarios = obter_todos_usuarios_mapeados()
-        nome_selecionado = st.selectbox("Filtrar lançamentos de:", list(dict_usuarios.keys()))
+        
+        # Encontra o label correspondente ao ID do Admin para deixar selecionado por padrão
+        lista_labels = list(dict_usuarios.keys())
+        idx_padrao = 0
+        for i, k in enumerate(lista_labels):
+            if dict_usuarios[k] == st.session_state.user.id:
+                idx_padrao = i
+                break
+                
+        nome_selecionado = st.selectbox("Filtrar lançamentos de:", lista_labels, index=idx_padrao)
         id_usuario_filtrado = dict_usuarios[nome_selecionado]
         st.divider()
     else:
         id_usuario_filtrado = st.session_state.user.id
     
-    # IMPORTANTE: Carrega os dados reais do usuário selecionado para os relatórios
     df_temp = carregar_dados(st.session_state.user.id, id_usuario_filtrado)
     
-    # --- ISOLAMENTO TOTAL DO FORMULÁRIO DO ADMIN ---
+    # --- ISOLAMENTO DO FORMULÁRIO ---
     permite_lancar = True
     if is_admin() and id_usuario_filtrado == "Todos":
         permite_lancar = False
-        st.warning("⚠️ Para criar uma nova conta contábil ou realizar lançamentos próprios, altere o filtro acima para 'Meu Usuário (Admin)'.")
+        st.warning("⚠️ Para criar contas ou fazer lançamentos próprios, selecione o seu nome 'Meu Usuário (Admin)' no filtro acima.")
     elif is_admin() and id_usuario_filtrado != st.session_state.user.id:
         permite_lancar = False
-        st.error("🚫 Bloqueado. Você está visualizando a conta de um usuário. Mude o filtro para 'Meu Usuário (Admin)' para criar contas e lançar seus dados.")
+        st.error("🚫 Modo de Leitura. Você não pode fazer lançamentos na conta de outros usuários.")
 
     if permite_lancar:
-        # Aqui o Admin está isolado em seu próprio ID (st.session_state.user.id)
-        # Carregamos apenas os lançamentos dele para montar o selectbox de contas existentes de forma limpa
         df_proprio = carregar_dados(st.session_state.user.id, st.session_state.user.id)
         
         if st.session_state.edit_id and not df_proprio.empty:
@@ -354,7 +359,6 @@ with st.sidebar:
             just_input = st.text_area("Justificativa", value=reg['justificativa'])
             
             if st.form_submit_button("Confirmar"):
-                # O user_id aqui é forçado estritamente para o Admin logado. Ninguém mais é afetado.
                 payload = {"user_id": st.session_state.user.id, "descricao": desc_input, "natureza": nat, "tipo": tipo, "valor": valor, "justificativa": just_input, "status": status_pag, "data_lancamento": str(data_f)}
                 if st.session_state.edit_id: supabase.table("lancamentos").update(payload).eq("id", st.session_state.edit_id).execute()
                 else: supabase.table("lancamentos").insert(payload).execute()
