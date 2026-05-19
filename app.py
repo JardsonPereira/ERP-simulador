@@ -18,7 +18,7 @@ if 'form_count' not in st.session_state: st.session_state.form_count = 0
 if 'menu_opcao' not in st.session_state: st.session_state.menu_opcao = "📊 Razonetes"
 if 'tem_perfil' not in st.session_state: st.session_state.tem_perfil = False
 
-# Inicialização persistente do filtro no session_state
+# Inicialização persistente do filtro no session_state para evitar resets automáticos
 if 'filtro_admin' not in st.session_state:
     if st.session_state.user and st.session_state.user.email == EMAIL_ADMIN:
         st.session_state.filtro_admin = "Todos"
@@ -123,6 +123,30 @@ def obter_contas_do_usuario(u_id, usuario_selecionado):
     except:
         return []
 
+def agrupar_por_conta(df):
+    if df is None or df.empty: return []
+    linhas = []
+    for conta in sorted(df['descricao'].unique()):
+        sub = df[df['descricao'] == conta]
+        d = sub[sub['tipo'] == 'Débito']['valor'].sum()
+        c = sub[sub['tipo'] == 'Crédito']['valor'].sum()
+        nat = sub['natureza'].iloc[0]
+        
+        if 'Ativo' in nat or nat in ['Despesa', 'Encargos Financeiros']:
+            saldo = d - c
+        else:
+            saldo = c - d
+        linhas.append((conta.title(), abs(saldo)))
+    return linhas
+
+def total_grupo_com_sinal(df, nat):
+    if df is None or df.empty: return 0.0
+    d = df[df['tipo'] == 'Débito']['valor'].sum()
+    c = df[df['tipo'] == 'Crédito']['valor'].sum()
+    if 'Ativo' in nat or nat in ['Despesa', 'Encargos Financeiros']:
+        return d - c
+    return c - d
+
 def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_pl, v_rec_total, v_desp_total, v_ebitda, v_finan_total, v_lucro):
     pdf = FPDF()
     pdf.add_page()
@@ -155,6 +179,7 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
     pdf.cell(140, 6, clean_str("(+) RECEITAS"), border=1)
     pdf.cell(50, 6, clean_str(f"R$ {v_rec_total:,.2f}"), border=1, ln=True, align="R")
     pdf.set_font("Arial", "", 9)
+    
     df_rec = df_per[df_per['natureza'] == 'Receita'] if not df_per.empty else pd.DataFrame()
     for conta, valor in agrupar_por_conta(df_rec):
         pdf.cell(140, 5.5, clean_str(f"   {conta}"), border=1)
@@ -164,6 +189,7 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
     pdf.cell(140, 6, clean_str("(-) DESPESAS OPERACIONAIS"), border=1)
     pdf.cell(50, 6, clean_str(f"R$ ({v_desp_total:,.2f})"), border=1, ln=True, align="R")
     pdf.set_font("Arial", "", 9)
+    
     df_desp = df_per[df_per['natureza'] == 'Despesa'] if not df_per.empty else pd.DataFrame()
     for conta, valor in agrupar_por_conta(df_desp):
         pdf.cell(140, 5.5, clean_str(f"   {conta}"), border=1)
@@ -176,6 +202,7 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
     pdf.cell(140, 6, clean_str("(-) ENCARGOS FINANCEIROS / IMPOSTOS"), border=1)
     pdf.cell(50, 6, clean_str(f"R$ ({v_finan_total:,.2f})"), border=1, ln=True, align="R")
     pdf.set_font("Arial", "", 9)
+    
     df_fin = df_per[df_per['natureza'] == 'Encargos Financeiros'] if not df_per.empty else pd.DataFrame()
     for conta, valor in agrupar_por_conta(df_fin):
         pdf.cell(140, 5.5, clean_str(f"   {conta}"), border=1)
@@ -300,26 +327,10 @@ def gerar_pdf(user_email, df_per, data_i, data_f, s_ini, s_fin, v_at, v_pas, v_p
 
     return pdf.output()
 
-def agrupar_por_conta(df):
-    if df.empty: return []
-    linhas = []
-    for conta in sorted(df['descricao'].unique()):
-        sub = df[df['descricao'] == conta]
-        d = sub[sub['tipo'] == 'Débito']['valor'].sum()
-        c = sub[sub['tipo'] == 'Crédito']['valor'].sum()
-        nat = sub['natureza'].iloc[0]
-        
-        if 'Ativo' in nat or nat in ['Despesa', 'Encargos Financeiros']:
-            saldo = d - c
-        else:
-            saldo = c - d
-        linhas.append((conta.title(), abs(saldo)))
-    return lines
-
-def total_grupo_com_sinal(df, nat):
-    if df.empty: return 0.0
-    d = df[df['tipo'] == 'Débito']['valor'].sum()
-    c = df[df['tipo'] == 'Crédito']['valor'].sum()
+def get_saldo_total_por_natureza(df, nat):
+    if df is None or df.empty or 'natureza' not in df.columns or 'tipo' not in df.columns: return 0.0
+    d = df[(df['natureza'] == nat) & (df['tipo'] == 'Débito')]['valor'].sum()
+    c = df[(df['natureza'] == nat) & (df['tipo'] == 'Crédito')]['valor'].sum()
     if 'Ativo' in nat or nat in ['Despesa', 'Encargos Financeiros']:
         return d - c
     return c - d
@@ -397,7 +408,7 @@ with st.sidebar:
         st.header("📝 Editar Lançamento")
         df_edicao = carregar_dados(st.session_state.user.id, id_usuario_filtrado)
         linhas_para_editar = df_edicao[df_edicao['id'] == st.session_state.edit_id] if not df_edicao.empty else pd.DataFrame()
-        if not linhas_para_editar.empty:
+        if not líneas_para_editar.empty:
             reg = linhas_para_editar.iloc[0]
         else:
             reg = {"descricao": "", "natureza": "Ativo Circulante", "tipo": "Débito", "valor": 0.0, "justificativa": "", "status": "Pago", "data_lancamento": datetime.now().date()}
@@ -410,27 +421,25 @@ with st.sidebar:
         st.header("➕ Novo Lançamento")
         reg = {"descricao": "", "natureza": "Ativo Circulante", "tipo": "Débito", "valor": 0.0, "justificativa": "", "status": "Pago", "data_lancamento": datetime.now().date()}
 
-    # O FORMULÁRIO COM FLUXO ESTRUTURADO SEM CURTO-CIRCUITO DE COMPONENTE
+    # O FORMULÁRIO COM CONTROLE DE CHAVE DINÂMICA COMPLETO
     with st.form(key=f"form_sidebar_{id_usuario_filtrado}_{st.session_state.form_count}"):
         
-        # CORREÇÃO DEFINITIVA: Se a base estiver limpa (como no Admin inicial), pulamos a montagem do selectbox truncado
         if contas_existentes:
             opcoes_conta = ["+ Adicionar Nova Conta"] + contas_existentes
             idx_conta = opcoes_conta.index(reg['descricao']) if reg['descricao'] in contas_existentes else 0
             conta_sel = st.selectbox("Selecione a Conta", opcoes_conta, index=idx_conta)
             
+            # PROTEÇÃO COM KEY ESTÁTICA DO STREAMLIT: Evita que o campo limpe o texto ao digitar
             if conta_sel == "+ Adicionar Nova Conta":
-                desc_input = st.text_input("Nome da Nova Conta", value="").upper().strip()
+                desc_input = st.text_input("Nome da Nova Conta", key="nome_nova_conta_input_admin").upper().strip()
             else:
                 desc_input = conta_sel
         else:
-            # Caso o Admin ou Aluno não possua nenhuma conta criada, exibe direto o input de texto estático
-            st.info("ℹ️ Nenhuma conta cadastrada. Crie a sua primeira abaixo:")
-            desc_input = st.text_input("Nome da Nova Conta", value="").upper().strip()
+            st.info("ℹ️ Nenhuma conta cadastrada para este perfil.")
+            desc_input = st.text_input("Nome da Nova Conta", key="nome_nova_conta_input_admin_vazio").upper().strip()
             conta_sel = "+ Adicionar Nova Conta"
             
         data_f = st.date_input("Data", value=reg['data_lancamento'])
-        
         grupos = ["Ativo Circulante", "Ativo Não Circulante", "Passivo Circulante", "Passivo Não Circulante", "Patrimônio Líquido", "Receita", "Despesa", "Encargos Financeiros"]
         
         idx_inicial_grupo = grupos.index(reg['natureza']) if reg['natureza'] in grupos else 0
@@ -512,14 +521,6 @@ s_ini = get_caixa_acumulado(data_ini - timedelta(days=1))
 s_fin = get_caixa_acumulado(data_fim)
 
 # --- CÁLCULOS TÉCNICOS ADAPTADOS ---
-def get_saldo_total_por_natureza(df, nat):
-    if df.empty or 'natureza' not in df.columns or 'tipo' not in df.columns: return 0.0
-    d = df[(df['natureza'] == nat) & (df['tipo'] == 'Débito')]['valor'].sum()
-    c = df[(df['natureza'] == nat) & (df['tipo'] == 'Crédito')]['valor'].sum()
-    if 'Ativo' in nat or nat in ['Despesa', 'Encargos Financeiros']:
-        return d - c
-    return c - d
-
 if not df_periodo.empty and 'natureza' in df_periodo.columns and 'tipo' in df_periodo.columns:
     v_rec = df_periodo[(df_periodo['natureza'] == 'Receita') & (df_periodo['tipo'] == 'Crédito')]['valor'].sum()
     v_desp_op = df_periodo[(df_periodo['natureza'] == 'Despesa') & (df_periodo['tipo'] == 'Débito')]['valor'].sum()
@@ -540,7 +541,7 @@ with col_imp:
 
 # --- CONTEÚDO ---
 if df_periodo.empty and st.session_state.menu_opcao != "⚙️ Gestão":
-    st.info("Sem dados no período.")
+    st.info("Sem dados cadastrados neste período.")
 else:
     if st.session_state.menu_opcao == "📊 Razonetes":
         for grupo in ["Ativo Circulante", "Ativo Não Circulante", "Passivo Circulante", "Passivo Não Circulante", "Patrimônio Líquido", "Receita", "Despesa", "Encargos Financeiros"]:
