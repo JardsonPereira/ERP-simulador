@@ -187,22 +187,30 @@ elif menu == "Fluxo de Caixa":
         
         st.table(df_fc[['data_lancamento', 'nome_conta', 'operacao', 'valor', 'status_financeiro']])
         
-        st.subheader("Situação do Passivo")
-        df_passivo = df[df['grupo'].isin(['PASSIVO CIRCULANTE', 'PASSIVO NÃO CIRCULANTE'])]
-        df_passivo['val_contabil'] = df_passivo.apply(lambda x: x['valor'] if x['operacao'] == 'CREDITO' else -x['valor'], axis=1)
-        resumo_passivo = df_passivo.groupby('grupo')['val_contabil'].sum().reset_index()
-        total_passivo = resumo_passivo['val_contabil'].sum()
+        # --- NOVO: ANÁLISE DE LIQUIDEZ E PASSIVO ---
+        st.subheader("Análise de Liquidez e Passivo")
         
-        col_p1, col_p2 = st.columns(2)
-        col_p1.table(resumo_passivo)
-        col_p2.metric("Total Geral Passivo", f"R$ {total_passivo:,.2f}")
+        # Cálculos de Passivo
+        df_passivo_circ = df[df['grupo'] == 'PASSIVO CIRCULANTE']
+        df_passivo_nao_circ = df[df['grupo'] == 'PASSIVO NÃO CIRCULANTE']
         
+        passivo_circ_total = df_passivo_circ['valor'].sum()
+        passivo_nao_circ_total = df_passivo_nao_circ['valor'].sum()
+        total_passivo = passivo_circ_total + passivo_nao_circ_total
+        
+        # Cálculos de Ativo
         ativo_circulante = df[df['grupo'] == 'ATIVO CIRCULANTE']['valor'].sum()
-        passivo_circ = df[df['grupo'] == 'PASSIVO CIRCULANTE']['valor'].sum()
-        liquidez = (ativo_circulante / passivo_circ) if passivo_circ > 0 else 0
-        st.info(f"Índice de Liquidez Corrente (Ativo Circ. / Passivo Circ.): {liquidez:.2f}")
+        
+        # Índices
+        liquidez_corrente = (ativo_circulante / passivo_circ_total) if passivo_circ_total > 0 else 0
+        peso_curto_prazo = (passivo_circ_total / total_passivo * 100) if total_passivo > 0 else 0
+        
+        col_l1, col_l2, col_l3 = st.columns(3)
+        col_l1.metric("Liquidez Corrente", f"{liquidez_corrente:.2f}", help="Ativo Circulante / Passivo Circulante")
+        col_l2.metric("Peso Curto Prazo", f"{peso_curto_prazo:.1f}%", help="Passivo Circulante / Total Passivo")
+        col_l3.metric("Total Geral Passivo", f"R$ {total_passivo:,.2f}")
 
-    else: st.info("Sem dados.")
+    else: st.info("Sem dados suficientes.")
 
 # --- ABA ESTOQUE ---
 elif menu == "Estoque":
