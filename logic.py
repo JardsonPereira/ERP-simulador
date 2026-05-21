@@ -1,3 +1,5 @@
+import pandas as pd
+
 def registrar_lancamento(supabase, user_id, descricao, natureza, tipo, valor, justificativa, status):
     payload = {
         "user_id": user_id,
@@ -12,11 +14,11 @@ def registrar_lancamento(supabase, user_id, descricao, natureza, tipo, valor, ju
     supabase.table("lancamentos").insert(payload).execute()
 
 def processar_venda_integrada(supabase, user_id, produto_id, qtd, valor_venda):
-    # Lógica de integração (Fiscal + Estoque + Contábil)
     prod = supabase.table("produtos").select("*").eq("id", produto_id).single().execute()
     regra = supabase.table("config_tributaria").select("*").eq("categoria", prod.data['categoria']).single().execute()
     
     total_bruto = qtd * valor_venda
+    # Cálculo Fiscal 2026
     imposto = total_bruto * (regra.data['aliquota_icms'] + regra.data['aliquota_iss'])
     
     # Lançamentos integrados
@@ -24,4 +26,5 @@ def processar_venda_integrada(supabase, user_id, produto_id, qtd, valor_venda):
     registrar_lancamento(supabase, user_id, f"IMPOSTO {prod.data['nome']}", "Passivo Circulante", "Crédito", imposto, "Imposto Integrado", "Pendente")
     
     # Baixa estoque
-    supabase.table("produtos").update({"saldo_estoque": prod.data['saldo_estoque'] - qtd}).eq("id", produto_id).execute()
+    novo_saldo = prod.data['saldo_estoque'] - qtd
+    supabase.table("produtos").update({"saldo_estoque": novo_saldo}).eq("id", produto_id).execute()
