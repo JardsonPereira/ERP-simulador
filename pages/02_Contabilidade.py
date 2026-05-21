@@ -6,7 +6,7 @@ from utils import get_supabase, get_data_cached, check_auth, inject_css
 
 check_auth(); inject_css(); supabase = get_supabase()
 
-st.header("📚 Razonetes Compactos")
+st.header("📚 Razonetes")
 
 lancamentos = get_data_cached("lancamentos", st.session_state.user.id)
 contas = get_data_cached("contas", st.session_state.user.id)
@@ -17,36 +17,55 @@ if lancamentos and contas:
     
     # Filtro
     d_inicio = st.date_input("Início", value=df['data_lancamento'].min().date())
-    mask = (df['data_lancamento'].dt.date >= d_inicio)
-    df_p = df[mask]
+    df_p = df[df['data_lancamento'].dt.date >= d_inicio]
 
     for grupo in sorted(df_p['grupo'].unique()):
+        st.markdown(f"---")
         st.subheader(f"📁 {grupo}")
-        for nome_conta in sorted(df_p[df_p['grupo'] == grupo]['nome_conta'].unique()):
-            d_c = df_p[df_p['nome_conta'] == nome_conta]
-            
-            # Cabeçalho da conta centralizado e discreto
-            st.markdown(f"<div style='text-align:center; font-weight:bold; background:#f0f2f6; padding:5px; border-radius:5px;'>{nome_conta}</div>", unsafe_allow_html=True)
-            
-            col1, col2 = st.columns(2)
-            
-            # Função para renderizar lançamentos de forma compacta
-            def listar_lancamentos(df_tipo):
-                for _, row in df_tipo.iterrows():
-                    # Formato compacto: Data - R$ Valor - (Justificativa)
-                    st.markdown(f"<small>📅 {row['data_lancamento'].strftime('%d/%m')}: <b>R$ {row['valor']:,.2f}</b><br><i>{row['justificativa']}</i></small>", unsafe_allow_html=True)
-            
-            with col1:
-                st.markdown("<center>🟢 DÉBITO</center>", unsafe_allow_html=True)
-                listar_lancamentos(d_c[d_c['operacao'] == 'DEBITO'])
-            with col2:
-                st.markdown("<center>🔴 CRÉDITO</center>", unsafe_allow_html=True)
-                listar_lancamentos(d_c[d_c['operacao'] == 'CREDITO'])
-            
-            # Resumo do saldo (Mais compacto)
-            saldo = d_c[d_c['operacao'] == 'DEBITO']['valor'].sum() - d_c[d_c['operacao'] == 'CREDITO']['valor'].sum()
-            st.markdown(f"<div style='text-align:center; font-size:0.9em; margin-top:5px;'>Saldo: <b>R$ {saldo:,.2f}</b></div>", unsafe_allow_html=True)
-            st.markdown("<hr style='margin:10px 0;'>", unsafe_allow_html=True)
+        
+        # Grid de Razonetes (3 por linha para compactar)
+        contas_grupo = sorted(df_p[df_p['grupo'] == grupo]['nome_conta'].unique())
+        
+        # Loop em blocos de 3 para ficar compacto
+        for i in range(0, len(contas_grupo), 3):
+            cols = st.columns(3)
+            for j, col in enumerate(cols):
+                if i + j < len(contas_grupo):
+                    conta = contas_grupo[i+j]
+                    with col:
+                        # Dados
+                        d_c = df_p[df_p['nome_conta'] == conta]
+                        total_deb = d_c[d_c['operacao'] == 'DEBITO']['valor'].sum()
+                        total_cre = d_c[d_c['operacao'] == 'CREDITO']['valor'].sum()
+                        
+                        # Layout do T (Visual)
+                        st.markdown(f"""
+                            <div style="border: 1px solid #ddd; padding: 10px; border-radius: 5px; text-align: center;">
+                                <b>{conta}</b>
+                                <div style="border-top: 2px solid black; margin-top: 5px;"></div>
+                                <div style="display: flex; border-left: 2px solid black; height: 60px;">
+                                    <div style="flex: 1; text-align: left; padding-left: 5px; font-size: 0.85em;">
+                                        R$ {total_deb:,.2f}
+                                    </div>
+                                    <div style="flex: 1; text-align: right; padding-right: 5px; font-size: 0.85em;">
+                                        R$ {total_cre:,.2f}
+                                    </div>
+                                </div>
+                            </div>
+                        """, unsafe_allow_html=True)
+
+    # Balancete (com o erro do .map corrigido)
+    st.markdown("## Balancete de Verificação")
+    pivot = df_p.pivot_table(index='nome_conta', columns='operacao', values='valor', aggfunc='sum', fill_value=0)
+    if 'DEBITO' not in pivot.columns: pivot['DEBITO'] = 0
+    if 'CREDITO' not in pivot.columns: pivot['CREDITO'] = 0
+    pivot['Saldo Devedor'] = pivot.apply(lambda x: x['DEBITO'] - x['CREDITO'] if x['DEBITO'] > x['CREDITO'] else 0, axis=1)
+    pivot['Saldo Credor'] = pivot.apply(lambda x: x['CREDITO'] - x['DEBITO'] if x['CREDITO'] > x['DEBITO'] else 0, axis=1)
+    
+    st.dataframe(pivot.style.format("R$ {:,.2f}")
+                 .map(lambda v: 'background-color: #d4edda; color: #155724; font-weight: bold' if v > 0 else '', subset=['Saldo Devedor'])
+                 .map(lambda v: 'background-color: #f8d7da; color: #721c24; font-weight: bold' if v > 0 else '', subset=['Saldo Credor']),
+                 use_container_width=True)
 
 else:
-    st.info("Sem dados.")
+    st.info("Sem dados para exibir.")
