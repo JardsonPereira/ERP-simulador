@@ -1,6 +1,20 @@
 import streamlit as st, pandas as pd, sys, os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from utils import get_supabase, get_data_cached, check_auth, inject_css
+st.write("--- DEBUG ---")
+user = st.session_state.get('user')
+if user:
+    st.write(f"Usuário Logado ID: {user.id}")
+    # Busca bruta do banco
+    try:
+        dados = supabase.table("lancamentos").select("*").execute()
+        st.write("Dados recebidos do banco:", dados.data)
+        if len(dados.data) == 0:
+            st.warning("O banco retornou uma lista vazia. O RLS pode estar a bloquear ou não há dados para este user_id.")
+    except Exception as e:
+        st.error(f"Erro ao buscar dados: {e}")
+else:
+    st.error("Nenhum usuário logado na sessão.")
 
 check_auth(); inject_css(); supabase = get_supabase()
 
