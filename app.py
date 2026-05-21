@@ -12,6 +12,16 @@ supabase = create_client(url, key)
 
 st.set_page_config(page_title="ERP Didático", layout="wide", page_icon="📊")
 
+# --- CSS MODERNO ---
+st.markdown("""
+<style>
+    .stApp { background-color: #f4f7f6; }
+    .card { background-color: #ffffff; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px; }
+    .stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; border-left: 5px solid #007bff; }
+    .stButton>button { width: 100%; border-radius: 5px; }
+</style>
+""", unsafe_allow_html=True)
+
 # --- AUTENTICAÇÃO ---
 if 'user' not in st.session_state:
     st.title("🔐 Login / Cadastro")
@@ -40,7 +50,7 @@ def get_data(table):
 
 # --- INTERFACE PRINCIPAL ---
 st.sidebar.title(f"🏢 ERP Didático")
-st.sidebar.info(f"Usuário: {st.session_state.user.email}")
+st.sidebar.caption(f"Usuário: {st.session_state.user.email}")
 menu = st.sidebar.radio("Navegação", ["Contabilidade", "Lançamentos", "Fluxo de Caixa", "DRE", "Estoque"])
 
 # --- ABA LANÇAMENTOS ---
@@ -49,7 +59,7 @@ if menu == "Lançamentos":
     tab1, tab2, tab3 = st.tabs(["Realizar Lançamento", "Nova Conta", "Gerenciar Lançamentos"])
     
     with tab2:
-        with st.container(border=True):
+        with st.container():
             st.subheader("Cadastrar Nova Conta")
             nome = st.text_input("Nome da Conta")
             grupo = st.selectbox("Grupo", ["ATIVO CIRCULANTE", "ATIVO CIRCULANTE ESTOQUE", "ATIVO NÃO CIRCULANTE", "PASSIVO CIRCULANTE", "PASSIVO NÃO CIRCULANTE", "PL", "RECEITAS", "DESPESAS", "CMV", "ENCARGOS FINANCEIROS"])
@@ -61,20 +71,19 @@ if menu == "Lançamentos":
         contas = get_data("contas")
         if not contas: st.warning("Crie uma conta primeiro.")
         else:
-            with st.container(border=True):
-                mapa = {c['nome_conta']: c['id'] for c in contas}
-                c1, c2 = st.columns(2)
-                conta = c1.selectbox("Conta", list(mapa.keys()))
-                valor = c1.number_input("Valor (R$)", min_value=0.0, format="%.2f")
-                just = c1.text_input("Justificativa")
-                op = c2.selectbox("Operação", ["DEBITO", "CREDITO"])
-                status = c2.selectbox("Status", ["ENTRADA", "PAGO", "PENDENTE", "INVESTIMENTO", "TRANSAÇÃO INTERNA"])
-                data = c2.date_input("Data do Lançamento")
-                if st.button("Confirmar Lançamento", type="primary"):
-                    if not just: st.error("Preencha a justificativa.")
-                    else:
-                        supabase.table("lancamentos").insert({"user_id": st.session_state.user.id, "conta_id": mapa[conta], "operacao": op, "valor": float(valor), "status_financeiro": status, "data_lancamento": str(data), "justificativa": just}).execute()
-                        st.success("Lançamento efetuado!"); st.rerun()
+            mapa = {c['nome_conta']: c['id'] for c in contas}
+            c1, c2 = st.columns(2)
+            conta = c1.selectbox("Conta", list(mapa.keys()))
+            valor = c1.number_input("Valor (R$)", min_value=0.0, format="%.2f")
+            just = c1.text_input("Justificativa")
+            op = c2.selectbox("Operação", ["DEBITO", "CREDITO"])
+            status = c2.selectbox("Status", ["ENTRADA", "PAGO", "PENDENTE", "INVESTIMENTO", "TRANSAÇÃO INTERNA"])
+            data = c2.date_input("Data do Lançamento")
+            if st.button("Confirmar Lançamento", type="primary"):
+                if not just: st.error("Preencha a justificativa.")
+                else:
+                    supabase.table("lancamentos").insert({"user_id": st.session_state.user.id, "conta_id": mapa[conta], "operacao": op, "valor": float(valor), "status_financeiro": status, "data_lancamento": str(data), "justificativa": just}).execute()
+                    st.success("Lançamento efetuado!"); st.rerun()
 
     with tab3:
         st.subheader("Gerenciar Lançamentos")
@@ -84,8 +93,8 @@ if menu == "Lançamentos":
             df_g = pd.DataFrame(lancamentos)
             df_g['data_lancamento'] = pd.to_datetime(df_g['data_lancamento'])
             c_i, c_f = st.columns(2)
-            d_i = c_i.date_input("Data Início", value=df_g['data_lancamento'].min().date())
-            d_f = c_f.date_input("Data Fim", value=df_g['data_lancamento'].max().date())
+            d_i = c_i.date_input("Data Início (Filtro)", value=df_g['data_lancamento'].min().date())
+            d_f = c_f.date_input("Data Fim (Filtro)", value=df_g['data_lancamento'].max().date())
             mask_g = (df_g['data_lancamento'].dt.date >= d_i) & (df_g['data_lancamento'].dt.date <= d_f)
             lancamentos_filtrados = df_g.loc[mask_g].to_dict('records')
             
@@ -101,7 +110,7 @@ if menu == "Lançamentos":
             selecao = st.selectbox("Selecione para Editar/Excluir:", list(opcoes.keys()))
             id_sel = opcoes[selecao]
             item = next(i for i in lancamentos if i["id"] == id_sel)
-            with st.form("edit_form", border=True):
+            with st.form("edit_form"):
                 n_conta = st.selectbox("Conta", list(mapa_nome_id.keys()), index=list(mapa_nome_id.values()).index(item['conta_id']))
                 n_op = st.selectbox("Operação", ["DEBITO", "CREDITO"], index=["DEBITO", "CREDITO"].index(item['operacao']))
                 n_val = st.number_input("Valor", value=float(item['valor']))
@@ -136,11 +145,9 @@ elif menu == "DRE":
         lucro_bruto = receita_bruta - cmv
         lucro_liquido = lucro_bruto - despesas - encargos
         
-        with st.container(border=True):
-            st.subheader("Estrutura da DRE")
-            dre_data = {"Descrição": ["(+) Receita Bruta", "(-) CMV", "(=) Lucro Bruto", "(-) Despesas Operacionais", "(-) Encargos Financeiros", "(=) Lucro/Prejuízo Líquido"],
-                        "Valor": [receita_bruta, cmv, lucro_bruto, despesas, encargos, lucro_liquido]}
-            st.table(pd.DataFrame(dre_data).set_index("Descrição").style.format("R$ {:,.2f}"))
+        dre_data = {"Descrição": ["(+) Receita Bruta", "(-) CMV", "(=) Lucro Bruto", "(-) Despesas Operacionais", "(-) Encargos Financeiros", "(=) Lucro/Prejuízo Líquido"],
+                    "Valor": [receita_bruta, cmv, lucro_bruto, despesas, encargos, lucro_liquido]}
+        st.table(pd.DataFrame(dre_data).set_index("Descrição").style.format("R$ {:,.2f}"))
     else: st.info("Dados insuficientes.")
 
 # --- ABA FLUXO DE CAIXA ---
@@ -176,33 +183,31 @@ elif menu == "Fluxo de Caixa":
         saidas = abs(df_fc[df_fc['fluxo'] < 0]['fluxo'].sum())
         saldo_final = (saldo_inicial + entradas - saidas)
         
-        st.subheader("Resumo Financeiro")
-        k1, k2, k3, k4 = st.columns(4)
-        k1.metric("Saldo Inicial", f"R$ {saldo_inicial:,.2f}")
-        k2.metric("Entradas", f"R$ {entradas:,.2f}")
-        k3.metric("Saídas", f"R$ {saidas:,.2f}")
-        k4.metric("Saldo Final", f"R$ {saldo_final:,.2f}")
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Saldo Inicial", f"R$ {saldo_inicial:,.2f}")
+        col2.metric("Entradas", f"R$ {entradas:,.2f}")
+        col3.metric("Saídas", f"R$ {saidas:,.2f}")
+        col4.metric("Saldo Final", f"R$ {saldo_final:,.2f}")
         
-        with st.container(border=True):
-            st.table(df_fc[['data_lancamento', 'nome_conta', 'operacao', 'valor', 'status_financeiro']])
+        st.table(df_fc[['data_lancamento', 'nome_conta', 'operacao', 'valor', 'status_financeiro']])
         
-        st.subheader("Análise de Liquidez e Passivo")
+        st.subheader("📊 Análise de Liquidez e Passivo")
         df_passivo = df[df['grupo'].isin(['PASSIVO CIRCULANTE', 'PASSIVO NÃO CIRCULANTE'])]
         df_passivo['val_contabil'] = df_passivo.apply(lambda x: x['valor'] if x['operacao'] == 'CREDITO' else -x['valor'], axis=1)
         
         passivo_circ = df[df['grupo'] == 'PASSIVO CIRCULANTE']['valor'].sum()
         passivo_total = df_passivo['val_contabil'].sum()
         
-        col_res, col_liq = st.columns(2)
-        with col_res:
+        c1, c2 = st.columns(2)
+        with c1:
             st.table(df_passivo.groupby('grupo')['val_contabil'].sum().reset_index())
             st.metric("Total Geral Passivo", f"R$ {passivo_total:,.2f}")
         
-        liq_circ_perc = (saldo_final / passivo_circ * 100) if passivo_circ > 0 else 0
-        liq_total_perc = (saldo_final / passivo_total * 100) if passivo_total > 0 else 0
-        
-        col_liq.metric("Índice (Saldo Final / Passivo Circ.)", f"{liq_circ_perc:.2f}%")
-        col_liq.metric("Índice (Saldo Final / Passivo Total)", f"{liq_total_perc:.2f}%")
+        with c2:
+            liq_circ_perc = (saldo_final / passivo_circ * 100) if passivo_circ > 0 else 0
+            liq_total_perc = (saldo_final / passivo_total * 100) if passivo_total > 0 else 0
+            st.metric("Liquidez (Saldo / Passivo Circ.)", f"{liq_circ_perc:.2f}%")
+            st.metric("Liquidez (Saldo / Passivo Total)", f"{liq_total_perc:.2f}%")
 
     else: st.info("Sem dados.")
 
@@ -221,11 +226,10 @@ elif menu == "Estoque":
         total_saidas = df_est[df_est['operacao'] == 'CREDITO']['valor'].sum()
         
         c1, c2, c3 = st.columns(3)
-        c1.metric("Entradas (Estoque)", f"R$ {total_entradas:,.2f}")
-        c2.metric("Saídas (Estoque)", f"R$ {total_saidas:,.2f}")
-        c3.metric("Saldo em Estoque", f"R$ {total_entradas - total_saidas:,.2f}")
-        with st.container(border=True):
-            st.table(df_est[['data_lancamento', 'nome_conta', 'tipo', 'valor']])
+        c1.metric("Entradas", f"R$ {total_entradas:,.2f}")
+        c2.metric("Saídas", f"R$ {total_saidas:,.2f}")
+        c3.metric("Saldo Estoque", f"R$ {total_entradas - total_saidas:,.2f}")
+        st.table(df_est[['data_lancamento', 'nome_conta', 'tipo', 'valor']])
     else: st.info("Nenhuma movimentação de estoque registrada.")
 
 # --- ABA CONTABILIDADE ---
@@ -253,35 +257,23 @@ elif menu == "Contabilidade":
                 cols = st.columns(2)
                 for i, nome_conta in enumerate(df_g['nome_conta'].unique()):
                     d_conta = df_g[df_g['nome_conta'] == nome_conta]
-                    deb = d_conta[d_conta['operacao'] == 'DEBITO'].reset_index()
-                    cre = d_conta[d_conta['operacao'] == 'CREDITO'].reset_index()
+                    deb = d_conta[d_conta['operacao'] == 'DEBITO']['valor'].sum()
+                    cre = d_conta[d_conta['operacao'] == 'CREDITO']['valor'].sum()
                     
-                    html = f"""<div style="border:1px solid #ccc; padding:10px; border-radius:10px; margin-bottom:20px;">
-                    <table style="width:100%"><tr><th colspan="2" style="border-bottom:1px solid #000">{nome_conta}</th></tr>
-                    <tr><td style="text-align:center">Débito</td><td style="text-align:center">Crédito</td></tr>
-                    <tr><td style="border-right:1px solid #000; text-align:right"><b>{deb['valor'].sum():,.2f}</b></td>
-                    <td style="text-align:left"><b>{cre['valor'].sum():,.2f}</b></td></tr>
-                    </table></div>"""
-                    cols[i % 2].markdown(html, unsafe_allow_html=True)
+                    st.markdown(f"""<div style="border: 2px solid #ddd; padding: 10px; border-radius: 8px; text-align: center;">
+                    <b>{nome_conta}</b><hr>
+                    D: {deb:,.2f} | C: {cre:,.2f}</div>""", unsafe_allow_html=True)
                     
         with tab_b:
-            with st.container(border=True):
-                st.subheader("Balancete de Verificação")
-                bal = df_f.groupby(['grupo', 'nome_conta', 'operacao'])['valor'].sum().unstack(fill_value=0.0)
-                if 'DEBITO' not in bal.columns: bal['DEBITO'] = 0.0
-                if 'CREDITO' not in bal.columns: bal['CREDITO'] = 0.0
-                bal['SALDO DEVEDOR'] = bal.apply(lambda x: x['DEBITO'] - x['CREDITO'] if x['DEBITO'] > x['CREDITO'] else 0.0, axis=1)
-                bal['SALDO CREDOR'] = bal.apply(lambda x: x['CREDITO'] - x['DEBITO'] if x['CREDITO'] > x['DEBITO'] else 0.0, axis=1)
-                bal_final = bal.reset_index()
-                total_row = pd.DataFrame({
-                    'grupo': ['TOTAL GERAL'],
-                    'nome_conta': [''],
-                    'DEBITO': [bal['DEBITO'].sum()],
-                    'CREDITO': [bal['CREDITO'].sum()],
-                    'SALDO DEVEDOR': [bal['SALDO DEVEDOR'].sum()],
-                    'SALDO CREDOR': [bal['SALDO CREDOR'].sum()]
-                })
-                bal_final = pd.concat([bal_final, total_row], ignore_index=True)
-                st.table(bal_final.style.format({"DEBITO": "R$ {:,.2f}", "CREDITO": "R$ {:,.2f}", "SALDO DEVEDOR": "R$ {:,.2f}", "SALDO CREDOR": "R$ {:,.2f}"}))
+            st.subheader("Balancete de Verificação")
+            bal = df_f.groupby(['grupo', 'nome_conta', 'operacao'])['valor'].sum().unstack(fill_value=0.0)
+            if 'DEBITO' not in bal.columns: bal['DEBITO'] = 0.0
+            if 'CREDITO' not in bal.columns: bal['CREDITO'] = 0.0
+            bal['SALDO DEVEDOR'] = bal.apply(lambda x: x['DEBITO'] - x['CREDITO'] if x['DEBITO'] > x['CREDITO'] else 0.0, axis=1)
+            bal['SALDO CREDOR'] = bal.apply(lambda x: x['CREDITO'] - x['DEBITO'] if x['CREDITO'] > x['DEBITO'] else 0.0, axis=1)
+            bal_final = bal.reset_index()
+            total_row = pd.DataFrame({'grupo': ['TOTAL GERAL'], 'nome_conta': [''], 'DEBITO': [bal['DEBITO'].sum()], 'CREDITO': [bal['CREDITO'].sum()], 'SALDO DEVEDOR': [bal['SALDO DEVEDOR'].sum()], 'SALDO CREDOR': [bal['SALDO CREDOR'].sum()]})
+            bal_final = pd.concat([bal_final, total_row], ignore_index=True)
+            st.table(bal_final.style.format({"DEBITO": "R$ {:,.2f}", "CREDITO": "R$ {:,.2f}", "SALDO DEVEDOR": "R$ {:,.2f}", "SALDO CREDOR": "R$ {:,.2f}"}))
     else:
         st.info("Sem dados.")
