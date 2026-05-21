@@ -51,21 +51,15 @@ if menu == "Lançamentos":
     st.header("Lançamentos Contábeis")
     tab1, tab2, tab3 = st.tabs(["Realizar Lançamento", "Nova Conta", "Gerenciar Lançamentos"])
     
-    # TAB 2: NOVA CONTA
     with tab2:
         st.subheader("Cadastrar Conta")
         nome = st.text_input("Nome da Conta")
         grupo = st.selectbox("Grupo", ["ATIVO CIRCULANTE", "ATIVO NÃO CIRCULANTE", "PASSIVO CIRCULANTE", "PASSIVO NÃO CIRCULANTE", "PL", "RECEITAS", "DESPESAS", "CMV"])
         if st.button("Salvar Conta"):
-            supabase.table("contas").insert({
-                "user_id": st.session_state.user.id, 
-                "nome_conta": nome, 
-                "grupo": grupo
-            }).execute()
+            supabase.table("contas").insert({"user_id": st.session_state.user.id, "nome_conta": nome, "grupo": grupo}).execute()
             st.success("Conta salva!")
             st.rerun()
 
-    # TAB 1: REALIZAR LANÇAMENTO
     with tab1:
         contas = get_data("contas")
         if not contas:
@@ -73,65 +67,46 @@ if menu == "Lançamentos":
         else:
             mapa = {c['nome_conta']: c['id'] for c in contas}
             c1, c2 = st.columns(2)
-            with c1:
-                conta = st.selectbox("Conta", list(mapa.keys()))
-                valor = st.number_input("Valor (R$)", min_value=0.0, format="%.2f")
-                justificativa = st.text_input("Justificativa", placeholder="Ex: Pagamento de fornecedor")
-            with c2:
-                op = st.selectbox("Operação", ["DEBITO", "CREDITO"])
-                status = st.selectbox("Status", ["ENTRADA", "PAGO", "PENDENTE", "INVESTIMENTO", "TRANSAÇÃO INTERNA"])
-                data = st.date_input("Data do Lançamento")
+            conta = c1.selectbox("Conta", list(mapa.keys()))
+            valor = c1.number_input("Valor (R$)", min_value=0.0, format="%.2f")
+            justificativa = c1.text_input("Justificativa")
+            op = c2.selectbox("Operação", ["DEBITO", "CREDITO"])
+            status = c2.selectbox("Status", ["ENTRADA", "PAGO", "PENDENTE", "INVESTIMENTO", "TRANSAÇÃO INTERNA"])
+            data = c2.date_input("Data do Lançamento")
             
             if st.button("Confirmar Lançamento"):
-                if not justificativa:
-                    st.error("Por favor, preencha a justificativa.")
+                if not justificativa: st.error("Preencha a justificativa.")
                 else:
                     try:
                         supabase.table("lancamentos").insert({
-                            "user_id": st.session_state.user.id, 
-                            "conta_id": mapa[conta],
-                            "operacao": op, 
-                            "valor": float(valor), 
-                            "status_financeiro": status, 
-                            "data_lancamento": str(data),
-                            "justificativa": justificativa
+                            "user_id": st.session_state.user.id, "conta_id": mapa[conta],
+                            "operacao": op, "valor": float(valor), "status_financeiro": status,
+                            "data_lancamento": str(data), "justificativa": justificativa
                         }).execute()
                         st.success("Lançamento efetuado!")
                         st.rerun()
-                    except Exception as e:
-                        st.error(f"Erro ao inserir: {e}")
+                    except Exception as e: st.error(f"Erro: {e}")
 
-    # TAB 3: GERENCIAR
     with tab3:
         st.subheader("Gerenciar Lançamentos")
         lancamentos = get_data("lancamentos")
         contas = get_data("contas")
         if lancamentos and contas:
-            st.divider()
             mapa_contas_id_nome = {c['id']: c['nome_conta'] for c in contas}
             mapa_contas_nome_id = {c['nome_conta']: c['id'] for c in contas}
             
             opcoes = {f"{l['data_lancamento']} | {mapa_contas_id_nome.get(l['conta_id'])} | {l['operacao']} | R$ {l['valor']:.2f} | {l.get('justificativa', '-')}" : l['id'] for l in lancamentos}
-            
-            selecao = st.selectbox("Selecione para Editar/Excluir:", list(opcoes.keys()))
+            selecao = st.selectbox("Selecione:", list(opcoes.keys()))
             id_sel = opcoes[selecao]
             item = next(i for i in lancamentos if i["id"] == id_sel)
             
-            with st.form("form_edit"):
-                nova_conta = st.selectbox("Conta", list(mapa_contas_nome_id.keys()), index=list(mapa_contas_nome_id.values()).index(item['conta_id']))
-                nova_op = st.selectbox("Operação", ["DEBITO", "CREDITO"], index=["DEBITO", "CREDITO"].index(item['operacao']))
-                novo_valor = st.number_input("Valor", value=float(item['valor']))
-                nova_just = st.text_input("Justificativa", value=item.get('justificativa', ''))
-                
-                c1, c2 = st.columns(2)
-                if c1.form_submit_button("Atualizar"):
-                    try:
-                        supabase.table("lancamentos").update({"conta_id": int(mapa_contas_nome_id[nova_conta]), "operacao": nova_op, "valor": float(novo_valor), "justificativa": nova_just}).eq("id", int(id_sel)).execute()
-                        st.success("Atualizado!")
-                        st.rerun()
-                    except Exception as e: st.error(str(e))
-                if c2.form_submit_button("Excluir"):
-                    supabase.table("lancamentos").delete().eq("id", int(id_sel)).execute()
+            with st.form("edit_form"):
+                n_conta = st.selectbox("Conta", list(mapa_contas_nome_id.keys()), index=list(mapa_contas_nome_id.values()).index(item['conta_id']))
+                n_op = st.selectbox("Operação", ["DEBITO", "CREDITO"], index=["DEBITO", "CREDITO"].index(item['operacao']))
+                n_val = st.number_input("Valor", value=float(item['valor']))
+                n_just = st.text_input("Justificativa", value=item.get('justificativa', ''))
+                if st.form_submit_button("Atualizar"):
+                    supabase.table("lancamentos").update({"conta_id": int(mapa_contas_nome_id[n_conta]), "operacao": n_op, "valor": float(n_val), "justificativa": n_just}).eq("id", int(id_sel)).execute()
                     st.rerun()
 
 # --- ABA CONTABILIDADE ---
@@ -143,10 +118,15 @@ elif menu == "Contabilidade":
         df_l = pd.DataFrame(lancamentos)
         df_c = pd.DataFrame(contas)
         df = df_l.merge(df_c, left_on='conta_id', right_on='id')
-        df['justificativa'] = df.get('justificativa', '-').fillna('-')
+        
+        # --- A CORREÇÃO ESTÁ AQUI ---
+        if 'justificativa' not in df.columns:
+            df['justificativa'] = '-'
+        else:
+            df['justificativa'] = df['justificativa'].fillna('-')
+        # ----------------------------
             
         tab_r, tab_b = st.tabs(["Razonetes", "Balancete"])
-        
         with tab_r:
             for grupo in df['grupo'].unique():
                 st.markdown(f"### 📁 {grupo}")
@@ -173,8 +153,5 @@ elif menu == "Contabilidade":
                     <td style="border-top:1px solid #000; text-align:left"><b>{cre['valor'].sum():,.2f}</b></td></tr>
                     </table></div>"""
                     cols[i % 2].markdown(html, unsafe_allow_html=True)
-        
         with tab_b:
             st.table(df.groupby(['grupo', 'nome_conta', 'operacao'])['valor'].sum().unstack(fill_value=0))
-    else:
-        st.info("Sem dados.")
