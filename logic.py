@@ -1,30 +1,17 @@
 import pandas as pd
 
-def registrar_lancamento(supabase, user_id, descricao, natureza, tipo, valor, justificativa, status):
-    payload = {
-        "user_id": user_id,
-        "descricao": descricao,
-        "natureza": natureza,
-        "tipo": tipo,
-        "valor": valor,
-        "justificativa": justificativa,
-        "status": status,
-        "data_lancamento": str(pd.Timestamp.now().date())
-    }
-    supabase.table("lancamentos").insert(payload).execute()
-
 def processar_venda_integrada(supabase, user_id, produto_id, qtd, valor_venda):
-    prod = supabase.table("produtos").select("*").eq("id", produto_id).single().execute()
-    regra = supabase.table("config_tributaria").select("*").eq("categoria", prod.data['categoria']).single().execute()
+    prod = supabase.table("produtos").select("*").eq("id", produto_id).single().execute().data
+    regra = supabase.table("config_tributaria").select("*").eq("categoria", prod['categoria']).single().execute().data
     
-    total_bruto = qtd * valor_venda
-    # Cálculo Fiscal 2026
-    imposto = total_bruto * (regra.data['aliquota_icms'] + regra.data['aliquota_iss'])
+    valor_bruto = qtd * valor_venda
+    imposto = valor_bruto * (regra['aliquota_icms'] + regra['aliquota_iss'])
     
-    # Lançamentos integrados
-    registrar_lancamento(supabase, user_id, f"VENDA {prod.data['nome']}", "Receita", "Crédito", total_bruto - imposto, "Venda Integrada", "Entrada")
-    registrar_lancamento(supabase, user_id, f"IMPOSTO {prod.data['nome']}", "Passivo Circulante", "Crédito", imposto, "Imposto Integrado", "Pendente")
+    # Grava na contabilidade
+    supabase.table("lancamentos").insert([
+        {"user_id": user_id, "descricao": f"VENDA {prod['nome']}", "natureza": "Receita", "tipo": "Crédito", "valor": valor_bruto - imposto},
+        {"user_id": user_id, "descricao": f"IMPOSTO {prod['nome']}", "natureza": "Passivo Circulante", "tipo": "Crédito", "valor": imposto}
+    ]).execute()
     
     # Baixa estoque
-    novo_saldo = prod.data['saldo_estoque'] - qtd
-    supabase.table("produtos").update({"saldo_estoque": novo_saldo}).eq("id", produto_id).execute()
+    supabase.table("produtos").update({"saldo_estoque": prod['saldo_estoque'] - qtd}).eq("id", produto_id).execute()
