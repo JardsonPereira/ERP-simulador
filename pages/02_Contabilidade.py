@@ -1,15 +1,23 @@
 import streamlit as st, pandas as pd, sys, os
 
-# 1. Configuração de caminho
+# Configuração de caminho
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from utils import get_supabase, get_data_cached, check_auth, inject_css
 
-# 2. Inicialização
 check_auth(); inject_css(); supabase = get_supabase()
 
 st.header("📚 Contabilidade Completa")
 
-# 3. Carregar Dados
+# Função para categorizar as contas (Ajuste os nomes conforme seu banco de dados)
+def classificar_conta(grupo):
+    g = grupo.lower()
+    if 'ativo circulante' in g: return '1. Ativo Circulante'
+    if 'ativo não circulante' in g: return '2. Ativo Não Circulante'
+    if 'passivo circulante' in g: return '3. Passivo Circulante'
+    if 'passivo não circulante' in g: return '4. Passivo Não Circulante'
+    if 'patrimonio' in g or 'pl' in g: return '5. Patrimônio Líquido'
+    return 'Outros'
+
 lancamentos = get_data_cached("lancamentos", st.session_state.user.id)
 contas = get_data_cached("contas", st.session_state.user.id)
 
@@ -17,27 +25,28 @@ if lancamentos and contas:
     df = pd.DataFrame(lancamentos).merge(pd.DataFrame(contas), left_on='conta_id', right_on='id')
     df['data_lancamento'] = pd.to_datetime(df['data_lancamento'])
     
-    # --- FILTRO DE PERÍODO ---
+    # Filtro de Período
     c1, c2 = st.columns(2)
     d_inicio = c1.date_input("Início", value=df['data_lancamento'].min().date())
     d_fim = c2.date_input("Fim", value=df['data_lancamento'].max().date())
     mask = (df['data_lancamento'].dt.date >= d_inicio) & (df['data_lancamento'].dt.date <= d_fim)
     df_p = df[mask]
 
-    # Abas principais
+    # Aplicar classificação nos dados filtrados
+    df_p = df_p.copy()
+    df_p['Categoria'] = df_p['grupo'].apply(classificar_conta)
+
     tab1, tab2, tab3 = st.tabs(["Razonetes (T)", "Balancete", "Balanço Patrimonial"])
     
     with tab1:
-        for grupo in sorted(df_p['grupo'].unique()):
-            st.markdown("---"); st.subheader(f"📁 {grupo}")
-            contas_grupo = sorted(df_p[df_p['grupo'] == grupo]['nome_conta'].unique())
-            
-            # Grid de 3 razonetes por linha
-            for i in range(0, len(contas_grupo), 3):
+        for cat in sorted(df_p['Categoria'].unique()):
+            st.subheader(f"📁 {cat}")
+            contas_cat = sorted(df_p[df_p['Categoria'] == cat]['nome_conta'].unique())
+            for i in range(0, len(contas_cat), 3):
                 cols = st.columns(3)
                 for j, col in enumerate(cols):
-                    if i + j < len(contas_grupo):
-                        conta = contas_grupo[i+j]
+                    if i + j < len(contas_cat):
+                        conta = contas_cat[i+j]
                         with col:
                             d_c = df_p[df_p['nome_conta'] == conta]
                             t_deb = d_c[d_c['operacao'] == 'DEBITO']['valor'].sum()
@@ -53,59 +62,44 @@ if lancamentos and contas:
                             """, unsafe_allow_html=True)
 
     with tab2:
-        pivot = df_p.pivot_table(index='nome_conta', columns='operacao', values='valor', aggfunc='sum', fill_value=0)
+        # Pivot por Categoria e Conta
+        pivot = df_p.pivot_table(index=['Categoria', 'nome_conta'], columns='operacao', values='valor', aggfunc='sum', fill_value=0)
         pivot = pivot.reindex(columns=['DEBITO', 'CREDITO'], fill_value=0)
         pivot['Saldo Devedor'] = (pivot['DEBITO'] - pivot['CREDITO']).clip(lower=0)
         pivot['Saldo Credor'] = (pivot['CREDITO'] - pivot['DEBITO']).clip(lower=0)
         
-        totais = pivot.sum()
-        pivot_final = pd.concat([pivot, pd.DataFrame(totais.rename("TOTAL")).T])
-        
-        if abs(pivot_final.loc['TOTAL', 'DEBITO'] - pivot_final.loc['TOTAL', 'CREDITO']) > 0.01:
-            st.error("⚠️ Balancete desbalanceado!")
-        else:
-            st.success("✅ Balancete fechado.")
-        
-        st.dataframe(pivot_final.style.format("R$ {:,.2f}"), use_container_width=True)
+        st.dataframe(pivot.style.format("R$ {:,.2f}"), use_container_width=True)
 
     with tab3:
-        # Lógica restrita para Balanço (exclui contas de resultado)
-        def categoria_balanco(grupo):
-            g = grupo.lower()
-            if 'ativo' in g: return 'Ativo'
-            if 'passivo' in g: return 'Passivo'
-            if 'patrimonio' in g or 'pl' in g or 'capital' in g: return 'PL'
-            return 'IGNORAR'
-
-        # Processar dados do balanço
-        df_balanco_raw = df_p.copy()
-        df_balanco_raw['Tipo'] = df_balanco_raw['grupo'].apply(categoria_balanco)
-        df_balanco = df_balanco_raw[df_balanco_raw['Tipo'] != 'IGNORAR']
-
-        df_balanco = df_balanco.groupby(['Tipo', 'nome_conta']).apply(
+        # Agrupamento para o Balanço (Excluindo 'Outros')
+        df_bal = df_p[df_p['Categoria'] != 'Outros']
+        df_bal = df_bal.groupby(['Categoria', 'nome_conta']).apply(
             lambda x: x[x['operacao'] == 'DEBITO']['valor'].sum() - x[x['operacao'] == 'CREDITO']['valor'].sum()
         ).reset_index(name='Saldo')
 
-        ativo_df = df_balanco[df_balanco['Tipo'] == 'Ativo'][['nome_conta', 'Saldo']]
-        passivo_pl_df = df_balanco[df_balanco['Tipo'].isin(['Passivo', 'PL'])][['nome_conta', 'Saldo']]
-        passivo_pl_df['Saldo'] = passivo_pl_df['Saldo'].abs()
-
+        # Colunas de exibição
         col_a, col_p = st.columns(2)
+        
         with col_a:
-            st.subheader("📋 ATIVO"); st.dataframe(ativo_df, use_container_width=True, hide_index=True)
-            total_ativo = ativo_df['Saldo'].sum()
+            st.subheader("📋 ATIVO")
+            ativos = df_bal[df_bal['Categoria'].str.contains('Ativo')]
+            st.dataframe(ativos[['Categoria', 'nome_conta', 'Saldo']], use_container_width=True, hide_index=True)
+            total_ativo = ativos['Saldo'].sum()
             st.metric("Total Ativo", f"R$ {total_ativo:,.2f}")
 
         with col_p:
-            st.subheader("📋 PASSIVO E PL"); st.dataframe(passivo_pl_df, use_container_width=True, hide_index=True)
-            total_passivo_pl = passivo_pl_df['Saldo'].sum()
+            st.subheader("📋 PASSIVO E PL")
+            passivos_pl = df_bal[df_bal['Categoria'].str.contains('Passivo|Patrimônio')]
+            passivos_pl['Saldo'] = passivos_pl['Saldo'].abs()
+            st.dataframe(passivos_pl[['Categoria', 'nome_conta', 'Saldo']], use_container_width=True, hide_index=True)
+            total_passivo_pl = passivos_pl['Saldo'].sum()
             st.metric("Total Passivo + PL", f"R$ {total_passivo_pl:,.2f}")
 
         st.divider()
         if abs(total_ativo - total_passivo_pl) < 0.01:
-            st.success(f"Equação Equilibrada: Ativo R${total_ativo:,.2f} = Passivo+PL R${total_passivo_pl:,.2f}")
+            st.success("Balanço Patrimonial Equilibrado ✅")
         else:
-            st.error(f"Diferença detectada! Ativo R${total_ativo:,.2f} vs Passivo+PL R${total_passivo_pl:,.2f}")
+            st.error("Diferença no Balanço! Verifique os lançamentos ⚠️")
 
 else:
     st.info("Sem dados para exibir.")
