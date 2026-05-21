@@ -117,9 +117,12 @@ if menu == "Lançamentos":
             col_reset1, col_reset2 = st.columns([3, 1])
             col_reset1.warning("⚠️ **Zona de Perigo:** Apagar todos os lançamentos é uma ação irreversível.")
             if col_reset2.button("Resetar Todos os Lançamentos", type="primary"):
-                supabase.table("lancamentos").delete().eq("user_id", st.session_state.user.id).execute()
-                st.success("Todos os lançamentos foram apagados!")
-                st.rerun()
+                try:
+                    supabase.table("lancamentos").delete().eq("user_id", st.session_state.user.id).execute()
+                    st.success("Todos os lançamentos foram apagados!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Erro ao deletar tudo: {e}")
             st.divider()
 
             mapa_contas_id_nome = {c['id']: c['nome_conta'] for c in contas}
@@ -150,19 +153,27 @@ if menu == "Lançamentos":
                 btn_excluir = col_btn2.form_submit_button("Excluir Lançamento")
                 
                 if btn_salvar:
-                    supabase.table("lancamentos").update({
-                        "conta_id": mapa_contas_nome_id[nova_conta_nome],
-                        "operacao": nova_operacao,
-                        "valor": novo_valor,
-                        "justificativa": nova_justificativa
-                    }).eq("id", id_selecionado).execute()
-                    st.success("Lançamento atualizado!")
-                    st.rerun()
+                    try:
+                        # Conversão explícita (int, float, str) para evitar o APIError
+                        supabase.table("lancamentos").update({
+                            "conta_id": int(mapa_contas_nome_id[nova_conta_nome]),
+                            "operacao": str(nova_operacao),
+                            "valor": float(novo_valor),
+                            "justificativa": str(nova_justificativa)
+                        }).eq("id", int(id_selecionado)).execute()
+                        st.success("Lançamento atualizado!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erro ao atualizar: Detalhes do banco de dados: {e}")
                     
                 if btn_excluir:
-                    supabase.table("lancamentos").delete().eq("id", id_selecionado).execute()
-                    st.success("Lançamento excluído!")
-                    st.rerun()
+                    try:
+                        # Conversão explícita (int) para garantir exclusão
+                        supabase.table("lancamentos").delete().eq("id", int(id_selecionado)).execute()
+                        st.success("Lançamento excluído!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erro ao excluir: Detalhes do banco de dados: {e}")
         else:
             st.info("Nenhum lançamento encontrado para gerenciar.")
 
@@ -191,14 +202,11 @@ elif menu == "Contabilidade":
         with btn_razonetes:
             st.subheader("Razonetes (Contas em 'T') - Resumo por Grupo")
             
-            # Obtém os grupos únicos que possuem lançamentos
             grupos_existentes = df['grupo'].dropna().unique()
             
             for grupo in grupos_existentes:
-                # Cria um cabeçalho para o grupo
                 st.markdown(f"### 📁 {grupo}")
                 
-                # Filtra os dados apenas para o grupo atual
                 df_grupo = df[df['grupo'] == grupo]
                 
                 cols = st.columns(2)
@@ -242,7 +250,6 @@ elif menu == "Contabilidade":
                         st.markdown(html_razonete, unsafe_allow_html=True)
                     col_idx += 1
                 
-                # Adiciona um divisor visual após cada grupo para melhor organização
                 st.divider()
 
         # ----------------------------------------
