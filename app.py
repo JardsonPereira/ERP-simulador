@@ -208,7 +208,7 @@ elif menu == "Contabilidade":
                     
         with tab_b:
             st.subheader("Balancete de Verificação")
-            # Agrupamento e Pivot
+            # Agrupamento para criar a tabela de balancete flat
             bal = df_f.groupby(['grupo', 'nome_conta', 'operacao'])['valor'].sum().unstack(fill_value=0.0)
             if 'DEBITO' not in bal.columns: bal['DEBITO'] = 0.0
             if 'CREDITO' not in bal.columns: bal['CREDITO'] = 0.0
@@ -217,16 +217,21 @@ elif menu == "Contabilidade":
             bal['SALDO DEVEDOR'] = bal.apply(lambda x: x['DEBITO'] - x['CREDITO'] if x['DEBITO'] > x['CREDITO'] else 0.0, axis=1)
             bal['SALDO CREDOR'] = bal.apply(lambda x: x['CREDITO'] - x['DEBITO'] if x['CREDITO'] > x['DEBITO'] else 0.0, axis=1)
             
+            # Reset index para mostrar Grupo e Conta como colunas
+            bal_final = bal.reset_index()
+            
             # Adição da linha de total
-            total_row = pd.DataFrame(bal.sum()).T
-            total_row.index = ['TOTAL GERAL']
-            bal_final = pd.concat([bal, total_row])
+            total_row = pd.DataFrame({
+                'grupo': ['TOTAL GERAL'],
+                'nome_conta': [''],
+                'DEBITO': [bal['DEBITO'].sum()],
+                'CREDITO': [bal['CREDITO'].sum()],
+                'SALDO DEVEDOR': [bal['SALDO DEVEDOR'].sum()],
+                'SALDO CREDOR': [bal['SALDO CREDOR'].sum()]
+            })
             
-            st.table(bal_final.style.format("R$ {:,.2f}"))
+            bal_final = pd.concat([bal_final, total_row], ignore_index=True)
             
-            if abs(bal['DEBITO'].sum() - bal['CREDITO'].sum()) < 0.01:
-                st.success("Balancete Fechado! Débitos e Créditos estão iguais.")
-            else:
-                st.error("Diferença no Balancete!")
+            st.table(bal_final.style.format({"DEBITO": "R$ {:,.2f}", "CREDITO": "R$ {:,.2f}", "SALDO DEVEDOR": "R$ {:,.2f}", "SALDO CREDOR": "R$ {:,.2f}"}))
     else:
         st.info("Sem dados.")
