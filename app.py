@@ -158,12 +158,9 @@ elif menu == "Fluxo de Caixa":
         
         df_fc = df.loc[mask_periodo & df['status_financeiro'].isin(['ENTRADA', 'PAGO'])].copy()
         
-        # Lógica: ENTRADA (+), PAGO (-)
         def calcular_fluxo(row):
-            if row['status_financeiro'] == 'ENTRADA':
-                return row['valor']
-            elif row['status_financeiro'] == 'PAGO':
-                return -row['valor']
+            if row['status_financeiro'] == 'ENTRADA': return row['valor']
+            elif row['status_financeiro'] == 'PAGO': return -row['valor']
             return 0
         df_fc['fluxo'] = df_fc.apply(calcular_fluxo, axis=1)
         
@@ -184,21 +181,22 @@ elif menu == "Fluxo de Caixa":
         
         st.table(df_fc[['data_lancamento', 'nome_conta', 'operacao', 'valor', 'status_financeiro']])
         
-        # --- ANÁLISE DE LIQUIDEZ E PASSIVO ---
-        st.subheader("Análise de Liquidez")
-        df_passivo_circ = df[df['grupo'] == 'PASSIVO CIRCULANTE']
-        df_passivo_nao_circ = df[df['grupo'] == 'PASSIVO NÃO CIRCULANTE']
+        st.subheader("Situação do Passivo e Liquidez")
+        df_passivo = df[df['grupo'].isin(['PASSIVO CIRCULANTE', 'PASSIVO NÃO CIRCULANTE'])]
+        df_passivo['val_contabil'] = df_passivo.apply(lambda x: x['valor'] if x['operacao'] == 'CREDITO' else -x['valor'], axis=1)
         
-        passivo_circ_total = df_passivo_circ['valor'].sum()
-        total_passivo = passivo_circ_total + df_passivo_nao_circ['valor'].sum()
+        passivo_circ = df[df['grupo'] == 'PASSIVO CIRCULANTE']['valor'].sum()
+        passivo_total = df_passivo['val_contabil'].sum()
         
-        # Fórmulas Solicitadas
-        liq_circ_perc = (saldo_final / passivo_circ_total * 100) if passivo_circ_total > 0 else 0
-        liq_total_perc = (saldo_final / total_passivo * 100) if total_passivo > 0 else 0
+        col_res, col_liq = st.columns(2)
+        col_res.table(df_passivo.groupby('grupo')['val_contabil'].sum().reset_index())
+        col_res.metric("Total Geral Passivo", f"R$ {passivo_total:,.2f}")
         
-        col_l1, col_l2 = st.columns(2)
-        col_l1.metric("Índice (Saldo Final / Passivo Circ.)", f"{liq_circ_perc:.2f}%")
-        col_l2.metric("Índice (Saldo Final / Passivo Total)", f"{liq_total_perc:.2f}%")
+        liq_circ_perc = (saldo_final / passivo_circ * 100) if passivo_circ > 0 else 0
+        liq_total_perc = (saldo_final / passivo_total * 100) if passivo_total > 0 else 0
+        
+        col_liq.metric("Liquidez (Saldo Final / Passivo Circ.)", f"{liq_circ_perc:.2f}%")
+        col_liq.metric("Liquidez (Saldo Final / Passivo Total)", f"{liq_total_perc:.2f}%")
 
     else: st.info("Sem dados.")
 
