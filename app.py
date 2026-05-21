@@ -17,8 +17,9 @@ st.markdown("""
 <style>
     .stApp { background-color: #f4f7f6; }
     .card { background-color: #ffffff; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px; }
-    .stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; border-left: 5px solid #007bff; }
-    .stButton>button { width: 100%; border-radius: 5px; }
+    .stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; border-left: 5px solid #007bff; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+    .t-account { background: white; padding: 15px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); border: 1px solid #e0e0e0; margin-bottom: 15px; }
+    .t-title { text-align: center; font-weight: bold; font-size: 1.1em; margin-bottom: 5px; border-bottom: 2px solid #333; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -71,19 +72,20 @@ if menu == "Lançamentos":
         contas = get_data("contas")
         if not contas: st.warning("Crie uma conta primeiro.")
         else:
-            mapa = {c['nome_conta']: c['id'] for c in contas}
-            c1, c2 = st.columns(2)
-            conta = c1.selectbox("Conta", list(mapa.keys()))
-            valor = c1.number_input("Valor (R$)", min_value=0.0, format="%.2f")
-            just = c1.text_input("Justificativa")
-            op = c2.selectbox("Operação", ["DEBITO", "CREDITO"])
-            status = c2.selectbox("Status", ["ENTRADA", "PAGO", "PENDENTE", "INVESTIMENTO", "TRANSAÇÃO INTERNA"])
-            data = c2.date_input("Data do Lançamento")
-            if st.button("Confirmar Lançamento", type="primary"):
-                if not just: st.error("Preencha a justificativa.")
-                else:
-                    supabase.table("lancamentos").insert({"user_id": st.session_state.user.id, "conta_id": mapa[conta], "operacao": op, "valor": float(valor), "status_financeiro": status, "data_lancamento": str(data), "justificativa": just}).execute()
-                    st.success("Lançamento efetuado!"); st.rerun()
+            with st.container():
+                mapa = {c['nome_conta']: c['id'] for c in contas}
+                c1, c2 = st.columns(2)
+                conta = c1.selectbox("Conta", list(mapa.keys()))
+                valor = c1.number_input("Valor (R$)", min_value=0.0, format="%.2f")
+                just = c1.text_input("Justificativa")
+                op = c2.selectbox("Operação", ["DEBITO", "CREDITO"])
+                status = c2.selectbox("Status", ["ENTRADA", "PAGO", "PENDENTE", "INVESTIMENTO", "TRANSAÇÃO INTERNA"])
+                data = c2.date_input("Data do Lançamento")
+                if st.button("Confirmar Lançamento", type="primary"):
+                    if not just: st.error("Preencha a justificativa.")
+                    else:
+                        supabase.table("lancamentos").insert({"user_id": st.session_state.user.id, "conta_id": mapa[conta], "operacao": op, "valor": float(valor), "status_financeiro": status, "data_lancamento": str(data), "justificativa": just}).execute()
+                        st.success("Lançamento efetuado!"); st.rerun()
 
     with tab3:
         st.subheader("Gerenciar Lançamentos")
@@ -93,8 +95,8 @@ if menu == "Lançamentos":
             df_g = pd.DataFrame(lancamentos)
             df_g['data_lancamento'] = pd.to_datetime(df_g['data_lancamento'])
             c_i, c_f = st.columns(2)
-            d_i = c_i.date_input("Data Início (Filtro)", value=df_g['data_lancamento'].min().date())
-            d_f = c_f.date_input("Data Fim (Filtro)", value=df_g['data_lancamento'].max().date())
+            d_i = c_i.date_input("Data Início", value=df_g['data_lancamento'].min().date())
+            d_f = c_f.date_input("Data Fim", value=df_g['data_lancamento'].max().date())
             mask_g = (df_g['data_lancamento'].dt.date >= d_i) & (df_g['data_lancamento'].dt.date <= d_f)
             lancamentos_filtrados = df_g.loc[mask_g].to_dict('records')
             
@@ -226,9 +228,9 @@ elif menu == "Estoque":
         total_saidas = df_est[df_est['operacao'] == 'CREDITO']['valor'].sum()
         
         c1, c2, c3 = st.columns(3)
-        c1.metric("Entradas", f"R$ {total_entradas:,.2f}")
-        c2.metric("Saídas", f"R$ {total_saidas:,.2f}")
-        c3.metric("Saldo Estoque", f"R$ {total_entradas - total_saidas:,.2f}")
+        c1.metric("Entradas (Estoque)", f"R$ {total_entradas:,.2f}")
+        c2.metric("Saídas (Estoque)", f"R$ {total_saidas:,.2f}")
+        c3.metric("Saldo em Estoque", f"R$ {total_entradas - total_saidas:,.2f}")
         st.table(df_est[['data_lancamento', 'nome_conta', 'tipo', 'valor']])
     else: st.info("Nenhuma movimentação de estoque registrada.")
 
@@ -240,8 +242,6 @@ elif menu == "Contabilidade":
     if lancamentos and contas:
         df = pd.DataFrame(lancamentos).merge(pd.DataFrame(contas), left_on='conta_id', right_on='id')
         df['data_lancamento'] = pd.to_datetime(df['data_lancamento'])
-        if 'justificativa' not in df.columns: df = df.assign(justificativa='-')
-        df['justificativa'] = df['justificativa'].fillna('-')
         
         c1, c2 = st.columns(2)
         d_inicio = c1.date_input("Início", value=df['data_lancamento'].min().date())
@@ -254,15 +254,25 @@ elif menu == "Contabilidade":
             for grupo in df_f['grupo'].unique():
                 st.markdown(f"### 📁 {grupo}")
                 df_g = df_f[df_f['grupo'] == grupo]
-                cols = st.columns(2)
+                cols = st.columns(3) # Aumentando para 3 colunas para um visual mais dinâmico
                 for i, nome_conta in enumerate(df_g['nome_conta'].unique()):
                     d_conta = df_g[df_g['nome_conta'] == nome_conta]
                     deb = d_conta[d_conta['operacao'] == 'DEBITO']['valor'].sum()
                     cre = d_conta[d_conta['operacao'] == 'CREDITO']['valor'].sum()
                     
-                    st.markdown(f"""<div style="border: 2px solid #ddd; padding: 10px; border-radius: 8px; text-align: center;">
-                    <b>{nome_conta}</b><hr>
-                    D: {deb:,.2f} | C: {cre:,.2f}</div>""", unsafe_allow_html=True)
+                    html = f"""
+                    <div class="t-account">
+                        <div class="t-title">{nome_conta}</div>
+                        <table style="width:100%">
+                            <tr><td style="text-align:center; border-right:1px solid #ddd">Débito</td><td style="text-align:center">Crédito</td></tr>
+                            <tr>
+                                <td style="text-align:center; border-right:1px solid #ddd; color: #28a745;"><b>{deb:,.2f}</b></td>
+                                <td style="text-align:center; color: #dc3545;"><b>{cre:,.2f}</b></td>
+                            </tr>
+                        </table>
+                    </div>
+                    """
+                    cols[i % 3].markdown(html, unsafe_allow_html=True)
                     
         with tab_b:
             st.subheader("Balancete de Verificação")
