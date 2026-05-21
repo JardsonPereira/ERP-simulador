@@ -20,6 +20,7 @@ st.markdown("""
     .stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; border-left: 5px solid #007bff; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
     .t-account { background: white; padding: 15px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); border: 1px solid #e0e0e0; margin-bottom: 15px; }
     .t-title { text-align: center; font-weight: bold; font-size: 1.1em; margin-bottom: 5px; border-bottom: 2px solid #333; }
+    .t-saldo { text-align: center; font-weight: bold; font-size: 1em; margin-top: 5px; border-top: 2px solid #333; color: #0056b3; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -231,7 +232,8 @@ elif menu == "Estoque":
         c1.metric("Entradas (Estoque)", f"R$ {total_entradas:,.2f}")
         c2.metric("Saídas (Estoque)", f"R$ {total_saidas:,.2f}")
         c3.metric("Saldo em Estoque", f"R$ {total_entradas - total_saidas:,.2f}")
-        st.table(df_est[['data_lancamento', 'nome_conta', 'tipo', 'valor']])
+        with st.container(border=True):
+            st.table(df_est[['data_lancamento', 'nome_conta', 'tipo', 'valor']])
     else: st.info("Nenhuma movimentação de estoque registrada.")
 
 # --- ABA CONTABILIDADE ---
@@ -242,6 +244,8 @@ elif menu == "Contabilidade":
     if lancamentos and contas:
         df = pd.DataFrame(lancamentos).merge(pd.DataFrame(contas), left_on='conta_id', right_on='id')
         df['data_lancamento'] = pd.to_datetime(df['data_lancamento'])
+        if 'justificativa' not in df.columns: df = df.assign(justificativa='-')
+        df['justificativa'] = df['justificativa'].fillna('-')
         
         c1, c2 = st.columns(2)
         d_inicio = c1.date_input("Início", value=df['data_lancamento'].min().date())
@@ -254,11 +258,12 @@ elif menu == "Contabilidade":
             for grupo in df_f['grupo'].unique():
                 st.markdown(f"### 📁 {grupo}")
                 df_g = df_f[df_f['grupo'] == grupo]
-                cols = st.columns(3) # Aumentando para 3 colunas para um visual mais dinâmico
+                cols = st.columns(3)
                 for i, nome_conta in enumerate(df_g['nome_conta'].unique()):
                     d_conta = df_g[df_g['nome_conta'] == nome_conta]
                     deb = d_conta[d_conta['operacao'] == 'DEBITO']['valor'].sum()
                     cre = d_conta[d_conta['operacao'] == 'CREDITO']['valor'].sum()
+                    saldo = deb - cre
                     
                     html = f"""
                     <div class="t-account">
@@ -270,6 +275,7 @@ elif menu == "Contabilidade":
                                 <td style="text-align:center; color: #dc3545;"><b>{cre:,.2f}</b></td>
                             </tr>
                         </table>
+                        <div class="t-saldo">Saldo: {saldo:,.2f}</div>
                     </div>
                     """
                     cols[i % 3].markdown(html, unsafe_allow_html=True)
