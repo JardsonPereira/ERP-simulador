@@ -40,7 +40,7 @@ def get_data(table):
 
 # --- INTERFACE PRINCIPAL ---
 st.sidebar.title(f"ERP: {st.session_state.user.email}")
-menu = st.sidebar.radio("Navegação", ["Contabilidade", "Lançamentos", "Estoque", "DRE", "Fluxo de Caixa"])
+menu = st.sidebar.radio("Navegação", ["Contabilidade", "Lançamentos", "Fluxo de Caixa", "Estoque", "DRE"])
 
 # --- ABA LANÇAMENTOS ---
 if menu == "Lançamentos":
@@ -73,7 +73,7 @@ if menu == "Lançamentos":
                     supabase.table("lancamentos").insert({"user_id": st.session_state.user.id, "conta_id": mapa[conta], "operacao": op, "valor": float(valor), "status_financeiro": status, "data_lancamento": str(data), "justificativa": just}).execute()
                     st.success("Lançamento efetuado!"); st.rerun()
 
-    with tab3: # Gerenciar: EDIÇÃO COMPLETA
+    with tab3: # Gerenciar
         st.subheader("Gerenciar Lançamentos")
         lancamentos = get_data("lancamentos")
         contas = get_data("contas")
@@ -82,40 +82,54 @@ if menu == "Lançamentos":
                 if st.button("Resetar/Apagar TODOS os lançamentos", type="primary"):
                     supabase.table("lancamentos").delete().eq("user_id", st.session_state.user.id).execute()
                     st.rerun()
-            
             mapa_id_nome = {c['id']: c['nome_conta'] for c in contas}
             mapa_nome_id = {c['nome_conta']: c['id'] for c in contas}
             opcoes = {f"{l['data_lancamento']} | {mapa_id_nome.get(l['conta_id'])} | {l['operacao']} | R$ {l['valor']:.2f} | {l.get('justificativa', '-')}" : l['id'] for l in lancamentos}
-            
             selecao = st.selectbox("Selecione para Editar/Excluir:", list(opcoes.keys()))
             id_sel = opcoes[selecao]
             item = next(i for i in lancamentos if i["id"] == id_sel)
-            
             with st.form("edit_form"):
                 n_conta = st.selectbox("Conta", list(mapa_nome_id.keys()), index=list(mapa_nome_id.values()).index(item['conta_id']))
                 n_op = st.selectbox("Operação", ["DEBITO", "CREDITO"], index=["DEBITO", "CREDITO"].index(item['operacao']))
                 n_val = st.number_input("Valor", value=float(item['valor']))
                 n_just = st.text_input("Justificativa", value=item.get('justificativa', ''))
-                
-                # Novos campos editáveis
-                status_list = ["ENTRADA", "PAGO", "PENDENTE", "INVESTIMENTO", "TRANSAÇÃO INTERNA"]
-                n_status = st.selectbox("Status", status_list, index=status_list.index(item.get('status_financeiro', 'ENTRADA')))
-                n_data = st.date_input("Data", value=pd.to_datetime(item['data_lancamento']))
-                
                 c1, c2 = st.columns(2)
-                if c1.form_submit_button("Atualizar Completo"):
-                    supabase.table("lancamentos").update({
-                        "conta_id": int(mapa_nome_id[n_conta]), 
-                        "operacao": n_op, 
-                        "valor": float(n_val), 
-                        "justificativa": n_just,
-                        "status_financeiro": n_status,
-                        "data_lancamento": str(n_data)
-                    }).eq("id", int(id_sel)).execute()
+                if c1.form_submit_button("Atualizar"):
+                    supabase.table("lancamentos").update({"conta_id": int(mapa_nome_id[n_conta]), "operacao": n_op, "valor": float(n_val), "justificativa": n_just}).eq("id", int(id_sel)).execute()
                     st.rerun()
                 if c2.form_submit_button("Excluir", type="primary"):
                     supabase.table("lancamentos").delete().eq("id", int(id_sel)).execute()
                     st.rerun()
+
+# --- ABA FLUXO DE CAIXA ---
+elif menu == "Fluxo de Caixa":
+    st.header("Fluxo de Caixa")
+    lancamentos = get_data("lancamentos")
+    contas = get_data("contas")
+    if lancamentos and contas:
+        df = pd.DataFrame(lancamentos).merge(pd.DataFrame(contas), left_on='conta_id', right_on='id')
+        
+        # Filtro: Apenas Entradas e Pagos
+        df_fc = df[df['status_financeiro'].isin(['ENTRADA', 'PAGO'])].copy()
+        
+        # Cálculo de Entradas e Saídas
+        # Se operação é CRÉDITO e status ENTRADA -> Entrada de Caixa (+)
+        # Se operação é DÉBITO e status PAGO -> Saída de Caixa (-)
+        df_fc['fluxo'] = df_fc.apply(lambda x: x['valor'] if x['operacao'] == 'CREDITO' else -x['valor'], axis=1)
+        
+        total_entradas = df_fc[df_fc['fluxo'] > 0]['fluxo'].sum()
+        total_saidas = abs(df_fc[df_fc['fluxo'] < 0]['fluxo'].sum())
+        saldo_final = total_entradas - total_saidas
+        
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Total Entradas", f"R$ {total_entradas:,.2f}")
+        c2.metric("Total Saídas", f"R$ {total_saidas:,.2f}")
+        c3.metric("Saldo de Caixa", f"R$ {saldo_final:,.2f}")
+        
+        st.subheader("Detalhamento do Fluxo")
+        st.table(df_fc[['data_lancamento', 'nome_conta', 'operacao', 'valor', 'justificativa', 'status_financeiro']])
+    else:
+        st.info("Não há lançamentos classificados como 'ENTRADA' ou 'PAGO' para gerar o Fluxo de Caixa.")
 
 # --- ABA CONTABILIDADE ---
 elif menu == "Contabilidade":
@@ -124,23 +138,17 @@ elif menu == "Contabilidade":
     contas = get_data("contas")
     if lancamentos and contas:
         df = pd.DataFrame(lancamentos).merge(pd.DataFrame(contas), left_on='conta_id', right_on='id')
-        
-        # Correção Robustez Justificativa
         if 'justificativa' not in df.columns: df = df.assign(justificativa='-')
         df['justificativa'] = df['justificativa'].fillna('-')
         
-        # Filtro de Período
         df['data_lancamento'] = pd.to_datetime(df['data_lancamento'])
         st.subheader("Filtrar por Período")
         c1, c2 = st.columns(2)
         d_inicio = c1.date_input("Data Início", value=df['data_lancamento'].min().date())
         d_fim = c2.date_input("Data Fim", value=df['data_lancamento'].max().date())
         
-        # Aplicação do Filtro
         mask = (df['data_lancamento'].dt.date >= d_inicio) & (df['data_lancamento'].dt.date <= d_fim)
         df_f = df.loc[mask]
-        
-        st.divider()
             
         tab_r, tab_b = st.tabs(["Razonetes", "Balancete"])
         with tab_r:
@@ -152,7 +160,6 @@ elif menu == "Contabilidade":
                     d_conta = df_g[df_g['nome_conta'] == nome_conta]
                     deb = d_conta[d_conta['operacao'] == 'DEBITO'].reset_index()
                     cre = d_conta[d_conta['operacao'] == 'CREDITO'].reset_index()
-                    
                     linhas = ""
                     for j in range(max(len(deb), len(cre))):
                         d_v = f"{deb.loc[j, 'valor']:,.2f}" if j < len(deb) else ""
@@ -160,7 +167,6 @@ elif menu == "Contabilidade":
                         c_v = f"{cre.loc[j, 'valor']:,.2f}" if j < len(cre) else ""
                         c_j = f"<small style='color:gray'>({cre.loc[j, 'justificativa']})</small>" if j < len(cre) else ""
                         linhas += f"<tr><td style='border-right:1px solid #999; text-align:right; font-size:12px;'>{d_v} {d_j}</td><td style='text-align:left; font-size:12px;'>{c_v} {c_j}</td></tr>"
-                    
                     html = f"""<div style="border:1px solid #ccc; padding:10px; margin-bottom:20px;">
                     <table style="width:100%"><tr><th colspan="2" style="border-bottom:1px solid #000">{nome_conta}</th></tr>
                     <tr><td style="border-right:1px solid #000; text-align:center">Débito</td><td style="text-align:center">Crédito</td></tr>
