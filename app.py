@@ -156,7 +156,6 @@ elif menu == "Fluxo de Caixa":
         mask_periodo = (df['data_lancamento'].dt.date >= d_inicio) & (df['data_lancamento'].dt.date <= d_fim)
         mask_anterior = (df['data_lancamento'].dt.date < d_inicio)
         
-        # Filtro de lançamentos válidos para fluxo
         df_fc = df.loc[mask_periodo & df['status_financeiro'].isin(['ENTRADA', 'PAGO'])].copy()
         
         # Lógica: ENTRADA (+), PAGO (-)
@@ -168,49 +167,40 @@ elif menu == "Fluxo de Caixa":
             return 0
         df_fc['fluxo'] = df_fc.apply(calcular_fluxo, axis=1)
         
-        # Saldo Inicial (considerando contas do grupo CAIXA/ATIVO CIRCULANTE antes da data)
         df_caixa_anterior = df[(df['grupo'] == 'ATIVO CIRCULANTE') & mask_anterior]
         df_caixa_anterior['fluxo'] = df_caixa_anterior.apply(lambda x: x['valor'] if x['operacao'] == 'CREDITO' else -x['valor'], axis=1)
         saldo_inicial = df_caixa_anterior['fluxo'].sum()
         
-        # Totais
         entradas = df_fc[df_fc['fluxo'] > 0]['fluxo'].sum()
         saidas = abs(df_fc[df_fc['fluxo'] < 0]['fluxo'].sum())
+        saldo_final = (saldo_inicial + entradas - saidas)
         
-        # Métricas
         st.subheader("Resumo Financeiro")
         k1, k2, k3, k4 = st.columns(4)
         k1.metric("Saldo Inicial", f"R$ {saldo_inicial:,.2f}")
         k2.metric("Entradas", f"R$ {entradas:,.2f}")
         k3.metric("Saídas", f"R$ {saidas:,.2f}")
-        k4.metric("Saldo Final", f"R$ {(saldo_inicial + entradas - saidas):,.2f}")
+        k4.metric("Saldo Final", f"R$ {saldo_final:,.2f}")
         
         st.table(df_fc[['data_lancamento', 'nome_conta', 'operacao', 'valor', 'status_financeiro']])
         
-        # --- NOVO: ANÁLISE DE LIQUIDEZ E PASSIVO ---
-        st.subheader("Análise de Liquidez e Passivo")
-        
-        # Cálculos de Passivo
+        # --- ANÁLISE DE LIQUIDEZ E PASSIVO ---
+        st.subheader("Análise de Liquidez")
         df_passivo_circ = df[df['grupo'] == 'PASSIVO CIRCULANTE']
         df_passivo_nao_circ = df[df['grupo'] == 'PASSIVO NÃO CIRCULANTE']
         
         passivo_circ_total = df_passivo_circ['valor'].sum()
-        passivo_nao_circ_total = df_passivo_nao_circ['valor'].sum()
-        total_passivo = passivo_circ_total + passivo_nao_circ_total
+        total_passivo = passivo_circ_total + df_passivo_nao_circ['valor'].sum()
         
-        # Cálculos de Ativo
-        ativo_circulante = df[df['grupo'] == 'ATIVO CIRCULANTE']['valor'].sum()
+        # Fórmulas Solicitadas
+        liq_circ_perc = (saldo_final / passivo_circ_total * 100) if passivo_circ_total > 0 else 0
+        liq_total_perc = (saldo_final / total_passivo * 100) if total_passivo > 0 else 0
         
-        # Índices
-        liquidez_corrente = (ativo_circulante / passivo_circ_total) if passivo_circ_total > 0 else 0
-        peso_curto_prazo = (passivo_circ_total / total_passivo * 100) if total_passivo > 0 else 0
-        
-        col_l1, col_l2, col_l3 = st.columns(3)
-        col_l1.metric("Liquidez Corrente", f"{liquidez_corrente:.2f}", help="Ativo Circulante / Passivo Circulante")
-        col_l2.metric("Peso Curto Prazo", f"{peso_curto_prazo:.1f}%", help="Passivo Circulante / Total Passivo")
-        col_l3.metric("Total Geral Passivo", f"R$ {total_passivo:,.2f}")
+        col_l1, col_l2 = st.columns(2)
+        col_l1.metric("Índice (Saldo Final / Passivo Circ.)", f"{liq_circ_perc:.2f}%")
+        col_l2.metric("Índice (Saldo Final / Passivo Total)", f"{liq_total_perc:.2f}%")
 
-    else: st.info("Sem dados suficientes.")
+    else: st.info("Sem dados.")
 
 # --- ABA ESTOQUE ---
 elif menu == "Estoque":
@@ -220,11 +210,8 @@ elif menu == "Estoque":
     
     if lancamentos and contas:
         df = pd.DataFrame(lancamentos).merge(pd.DataFrame(contas), left_on='conta_id', right_on='id')
-        
         df_est = df[df['grupo'].isin(['ATIVO CIRCULANTE ESTOQUE', 'CMV'])].copy()
-        
         df_est['movimentacao'] = df_est.apply(lambda x: x['valor'] if x['grupo'] == 'ATIVO CIRCULANTE ESTOQUE' else -x['valor'], axis=1)
-        
         total_entradas = df_est[df_est['grupo'] == 'ATIVO CIRCULANTE ESTOQUE']['valor'].sum()
         total_saidas = df_est[df_est['grupo'] == 'CMV']['valor'].sum()
         
@@ -232,10 +219,8 @@ elif menu == "Estoque":
         c1.metric("Entradas (Estoque)", f"R$ {total_entradas:,.2f}")
         c2.metric("Saídas (CMV)", f"R$ {total_saidas:,.2f}")
         c3.metric("Saldo em Estoque", f"R$ {total_entradas - total_saidas:,.2f}")
-        
         st.table(df_est[['data_lancamento', 'nome_conta', 'grupo', 'valor']])
-    else:
-        st.info("Nenhuma movimentação de estoque registrada.")
+    else: st.info("Nenhuma movimentação de estoque registrada.")
 
 # --- ABA CONTABILIDADE ---
 elif menu == "Contabilidade":
