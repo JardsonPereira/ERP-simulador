@@ -117,40 +117,27 @@ elif menu == "DRE":
     if lancamentos and contas:
         df = pd.DataFrame(lancamentos).merge(pd.DataFrame(contas), left_on='conta_id', right_on='id')
         df['data_lancamento'] = pd.to_datetime(df['data_lancamento'])
-        
         c1, c2 = st.columns(2)
         d_i = c1.date_input("Início", value=df['data_lancamento'].min().date())
         d_f = c2.date_input("Fim", value=df['data_lancamento'].max().date())
-        
         mask = (df['data_lancamento'].dt.date >= d_i) & (df['data_lancamento'].dt.date <= d_f)
         df_dre = df.loc[mask]
         
-        # Filtra apenas grupos relevantes para DRE
         grupos_dre = ['RECEITAS', 'DESPESAS', 'CMV', 'ENCARGOS FINANCEIROS']
         df_dre = df_dre[df_dre['grupo'].isin(grupos_dre)]
         
-        # Cálculo DRE
         receita_bruta = df_dre[df_dre['grupo'] == 'RECEITAS']['valor'].sum()
         cmv = df_dre[df_dre['grupo'] == 'CMV']['valor'].sum()
         despesas = df_dre[df_dre['grupo'] == 'DESPESAS']['valor'].sum()
         encargos = df_dre[df_dre['grupo'] == 'ENCARGOS FINANCEIROS']['valor'].sum()
-        
         lucro_bruto = receita_bruta - cmv
         lucro_liquido = lucro_bruto - despesas - encargos
         
         st.subheader("Estrutura da DRE")
-        dre_data = {
-            "Descrição": ["(+) Receita Bruta", "(-) CMV", "(=) Lucro Bruto", "(-) Despesas Operacionais", "(-) Encargos Financeiros", "(=) Lucro/Prejuízo Líquido"],
-            "Valor": [receita_bruta, cmv, lucro_bruto, despesas, encargos, lucro_liquido]
-        }
+        dre_data = {"Descrição": ["(+) Receita Bruta", "(-) CMV", "(=) Lucro Bruto", "(-) Despesas Operacionais", "(-) Encargos Financeiros", "(=) Lucro/Prejuízo Líquido"],
+                    "Valor": [receita_bruta, cmv, lucro_bruto, despesas, encargos, lucro_liquido]}
         st.table(pd.DataFrame(dre_data).set_index("Descrição").style.format("R$ {:,.2f}"))
-        
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Receita Bruta", f"R$ {receita_bruta:,.2f}")
-        c2.metric("Despesas Totais", f"R$ {(cmv + despesas + encargos):,.2f}")
-        c3.metric("Resultado Líquido", f"R$ {lucro_liquido:,.2f}")
-    else:
-        st.info("Dados insuficientes para gerar a DRE.")
+    else: st.info("Dados insuficientes.")
 
 # --- ABA FLUXO DE CAIXA ---
 elif menu == "Fluxo de Caixa":
@@ -218,7 +205,21 @@ elif menu == "Contabilidade":
                     <td style="border-top:1px solid #000; text-align:left"><b>{cre['valor'].sum():,.2f}</b></td></tr>
                     </table></div>"""
                     cols[i % 2].markdown(html, unsafe_allow_html=True)
+                    
         with tab_b:
-            st.table(df_f.groupby(['grupo', 'nome_conta', 'operacao'])['valor'].sum().unstack(fill_value=0))
+            st.subheader("Balancete de Verificação")
+            balancete = df_f.groupby(['grupo', 'nome_conta', 'operacao'])['valor'].sum().unstack(fill_value=0)
+            if 'DEBITO' not in balancete.columns: balancete['DEBITO'] = 0.0
+            if 'CREDITO' not in balancete.columns: balancete['CREDITO'] = 0.0
+            
+            # Adicionando Linha de Total
+            balancete.loc['TOTAL GERAL'] = [balancete['DEBITO'].sum(), balancete['CREDITO'].sum()]
+            
+            st.table(balancete.style.format("R$ {:,.2f}"))
+            
+            if balancete['DEBITO'].sum() == balancete['CREDITO'].sum():
+                st.success("Balancete Fechado! Débitos e Créditos são iguais.")
+            else:
+                st.error(f"Diferença encontrada! Débito: R${balancete['DEBITO'].sum():,.2f} | Crédito: R${balancete['CREDITO'].sum():,.2f}")
     else:
         st.info("Sem dados.")
