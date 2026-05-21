@@ -64,38 +64,39 @@ if lancamentos and contas:
         st.dataframe(pivot_final.style.format("R$ {:,.2f}"), use_container_width=True)
 
     with tab3:
-        # Lógica do Balanço
-        pivot_balanco = df_p.pivot_table(index=['grupo', 'nome_conta'], columns='operacao', values='valor', aggfunc='sum', fill_value=0)
-        pivot_balanco['Saldo'] = pivot_balanco.get('DEBITO', 0) - pivot_balanco.get('CREDITO', 0)
-        
-        # Categorização simples (Ajuste os nomes conforme seu grupo)
-        def definir_tipo(grupo):
+        # Lógica Balanço
+        df_balanco = df_p.groupby(['grupo', 'nome_conta']).apply(
+            lambda x: x[x['operacao'] == 'DEBITO']['valor'].sum() - x[x['operacao'] == 'CREDITO']['valor'].sum()
+        ).reset_index(name='Saldo')
+
+        def categoria_balanco(grupo):
             g = grupo.lower()
             if 'ativo' in g: return 'Ativo'
             if 'passivo' in g: return 'Passivo'
             return 'PL'
 
-        pivot_balanco['Tipo'] = pivot_balanco.index.get_level_values('grupo').map(definir_tipo)
-        
-        # Totais por tipo
-        resumo = pivot_balanco.groupby('Tipo')['Saldo'].sum()
-        
-        col_a, col_p, col_pl = st.columns(3)
-        col_a.metric("Ativo Total", f"R$ {resumo.get('Ativo', 0):,.2f}")
-        col_p.metric("Passivo Total", f"R$ {abs(resumo.get('Passivo', 0)):,.2f}")
-        col_pl.metric("Patrimônio Líquido", f"R$ {abs(resumo.get('PL', 0)):,.2f}")
-        
-        # Equação fundamental
-        ativo = resumo.get('Ativo', 0)
-        passivo_pl = abs(resumo.get('Passivo', 0)) + abs(resumo.get('PL', 0))
-        
-        st.divider()
-        if abs(ativo - passivo_pl) < 0.01:
-            st.success(f"Equação Equilibrada: Ativo (R${ativo:,.2f}) = Passivo + PL (R${passivo_pl:,.2f})")
-        else:
-            st.error(f"Diferença encontrada: Ativo (R${ativo:,.2f}) ≠ Passivo + PL (R${passivo_pl:,.2f})")
+        df_balanco['Tipo'] = df_balanco['grupo'].apply(categoria_balanco)
 
-        st.dataframe(pivot_balanco, use_container_width=True)
+        ativo_df = df_balanco[df_balanco['Tipo'] == 'Ativo'][['nome_conta', 'Saldo']]
+        passivo_pl_df = df_balanco[df_balanco['Tipo'] != 'Ativo'][['nome_conta', 'Saldo']]
+        passivo_pl_df['Saldo'] = passivo_pl_df['Saldo'].abs()
+
+        col_a, col_p = st.columns(2)
+        with col_a:
+            st.subheader("📋 ATIVO"); st.dataframe(ativo_df, use_container_width=True, hide_index=True)
+            total_ativo = ativo_df['Saldo'].sum()
+            st.metric("Total Ativo", f"R$ {total_ativo:,.2f}")
+
+        with col_p:
+            st.subheader("📋 PASSIVO E PL"); st.dataframe(passivo_pl_df, use_container_width=True, hide_index=True)
+            total_passivo_pl = passivo_pl_df['Saldo'].sum()
+            st.metric("Total Passivo + PL", f"R$ {total_passivo_pl:,.2f}")
+
+        st.divider()
+        if abs(total_ativo - total_passivo_pl) < 0.01:
+            st.success(f"Balanço Patrimonial Fechado: Ativo R${total_ativo:,.2f} = Passivo+PL R${total_passivo_pl:,.2f}")
+        else:
+            st.error(f"Diferença detectada! Ativo R${total_ativo:,.2f} vs Passivo+PL R${total_passivo_pl:,.2f}")
 
 else:
     st.info("Sem dados para exibir.")
