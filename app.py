@@ -81,7 +81,7 @@ st.sidebar.title("🏢 ERP Didático")
 st.sidebar.caption(f"Usuário: {st.session_state.user.email}")
 menu = st.sidebar.radio("Navegação", ["Contabilidade", "Lançamentos", "Fluxo de Caixa", "DRE", "Estoque", "Relatórios"])
 
-# --- LANÇAMENTOS ---
+# --- ABA LANÇAMENTOS ---
 if menu == "Lançamentos":
     st.header("📝 Lançamentos Contábeis")
     tab1, tab2, tab3 = st.tabs(["Realizar Lançamento", "Nova Conta", "Gerenciar"])
@@ -109,14 +109,21 @@ if menu == "Lançamentos":
                     if not df_full.empty:
                         st_bal = df_full[df_full['conta_id'].isin(st_ids)].apply(lambda x: x['valor'] if x['operacao']=='DEBITO' else -x['valor'], axis=1).sum()
                         if float(valor) > st_bal:
-                            st.error(f"Erro: Valor do CMV excede Estoque (R${st_bal:.2f}).")
+                            st.error(f"Erro: Valor do CMV excede Estoque disponível (R${st_bal:.2f}).")
                             st.stop()
                 supabase.table("lancamentos").insert({"user_id": st.session_state.user.id, "conta_id": mapa[conta], "operacao": op, "valor": float(valor), "status_financeiro": status, "data_lancamento": str(data)}).execute()
                 st.success("Lançamento efetuado!"); st.rerun()
     with tab3:
-        st.write("Gerenciamento...")
+        lancamentos = get_data("lancamentos")
+        contas = get_data("contas")
+        if lancamentos and contas:
+            df_g = pd.DataFrame(lancamentos)
+            opcoes = {f"{l['data_lancamento']} | {l['valor']}" : l['id'] for l in lancamentos}
+            selecao = st.selectbox("Selecione para Excluir:", list(opcoes.keys()))
+            if st.button("Excluir Selecionado"):
+                supabase.table("lancamentos").delete().eq("id", opcoes[selecao]).execute(); st.rerun()
 
-# --- FLUXO DE CAIXA ---
+# --- ABA FLUXO DE CAIXA ---
 elif menu == "Fluxo de Caixa":
     st.header("💵 Fluxo de Caixa")
     lancamentos = get_data("lancamentos")
@@ -136,7 +143,7 @@ elif menu == "Fluxo de Caixa":
         col4.metric("Saldo Final", f"R$ {(saldo_inicial + df_fc.apply(lambda x: x['valor'] if x['status_financeiro'] == 'ENTRADA' else (-x['valor'] if x['status_financeiro'] == 'PAGO' else 0), axis=1).sum()):,.2f}")
         st.table(df_fc[['data_lancamento', 'nome_conta', 'valor', 'status_financeiro']])
 
-# --- CONTABILIDADE ---
+# --- ABA CONTABILIDADE ---
 elif menu == "Contabilidade":
     st.header("📚 Contabilidade")
     tab1, tab2, tab3 = st.tabs(["Razonetes", "Balancete", "Balanço Patrimonial"])
@@ -163,10 +170,11 @@ elif menu == "Contabilidade":
             passivo = g.get('PASSIVO CIRCULANTE', 0) + g.get('PASSIVO NÃO CIRCULANTE', 0)
             pl = g.get('PL', 0)
             lucro = g.get('RECEITAS', 0) - g.get('CMV', 0) - (g.get('DESPESAS', 0) + g.get('ENCARGOS FINANCEIROS', 0))
-            bal_data = pd.DataFrame({"Conta": ["ATIVO", "PASSIVO", "PL", "LUCRO", "TOTAL P+PL+L"], "Valor": [ativo, passivo, pl, lucro, passivo+pl+lucro]})
+            bal_data = pd.DataFrame({"Conta": ["ATIVO", "PASSIVO", "PL (Capital Social)", "LUCRO DO PERÍODO", "TOTAL PASSIVO + PL + LUCRO"], 
+                                    "Valor": [ativo, passivo, pl, lucro, (passivo + pl + lucro)]})
             st.table(bal_data)
 
-# --- DRE ---
+# --- ABA DRE ---
 elif menu == "DRE":
     st.header("📈 DRE")
     lancamentos = get_data("lancamentos")
@@ -174,10 +182,11 @@ elif menu == "DRE":
     if lancamentos and contas:
         df = pd.DataFrame(lancamentos).merge(pd.DataFrame(contas), left_on='conta_id', right_on='id')
         g = df.groupby('grupo')['valor'].sum()
-        dre_data = pd.DataFrame({"Descrição": ["Receita", "CMV", "Despesas", "Lucro"], "Valor": [g.get('RECEITAS',0), g.get('CMV',0), g.get('DESPESAS',0), g.get('RECEITAS',0)-g.get('CMV',0)-g.get('DESPESAS',0)]})
+        dre_data = pd.DataFrame({"Descrição": ["Receita", "CMV", "Despesas", "Lucro"], 
+                                 "Valor": [g.get('RECEITAS',0), g.get('CMV',0), g.get('DESPESAS',0), g.get('RECEITAS',0)-g.get('CMV',0)-g.get('DESPESAS',0)]})
         st.table(dre_data)
 
-# --- ESTOQUE ---
+# --- ABA ESTOQUE ---
 elif menu == "Estoque":
     st.header("📦 Estoque")
     lancamentos = get_data("lancamentos")
@@ -186,7 +195,7 @@ elif menu == "Estoque":
         df = pd.DataFrame(lancamentos).merge(pd.DataFrame(contas), left_on='conta_id', right_on='id')
         st.table(df[df['grupo'] == 'ATIVO CIRCULANTE ESTOQUE'])
 
-# --- RELATÓRIOS ---
+# --- ABA RELATÓRIOS ---
 elif menu == "Relatórios":
     st.header("📄 Relatórios Consolidados")
     lancamentos = get_data("lancamentos")
