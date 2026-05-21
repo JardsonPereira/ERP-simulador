@@ -69,44 +69,44 @@ if menu == "Lançamentos":
             c1, c2 = st.columns(2)
             conta = c1.selectbox("Conta", list(mapa.keys()))
             valor = c1.number_input("Valor (R$)", min_value=0.0, format="%.2f")
-            justificativa = c1.text_input("Justificativa")
+            just = c1.text_input("Justificativa")
             op = c2.selectbox("Operação", ["DEBITO", "CREDITO"])
             status = c2.selectbox("Status", ["ENTRADA", "PAGO", "PENDENTE", "INVESTIMENTO", "TRANSAÇÃO INTERNA"])
             data = c2.date_input("Data do Lançamento")
             
             if st.button("Confirmar Lançamento"):
-                if not justificativa: st.error("Preencha a justificativa.")
+                if not just: st.error("Preencha a justificativa.")
                 else:
                     try:
                         supabase.table("lancamentos").insert({
                             "user_id": st.session_state.user.id, "conta_id": mapa[conta],
                             "operacao": op, "valor": float(valor), "status_financeiro": status,
-                            "data_lancamento": str(data), "justificativa": justificativa
+                            "data_lancamento": str(data), "justificativa": just
                         }).execute()
                         st.success("Lançamento efetuado!")
                         st.rerun()
-                    except Exception as e: st.error(f"Erro: {e}")
+                    except Exception as e: st.error(f"Erro ao inserir: {e}")
 
     with tab3:
         st.subheader("Gerenciar Lançamentos")
         lancamentos = get_data("lancamentos")
         contas = get_data("contas")
         if lancamentos and contas:
-            mapa_contas_id_nome = {c['id']: c['nome_conta'] for c in contas}
-            mapa_contas_nome_id = {c['nome_conta']: c['id'] for c in contas}
+            mapa_id_nome = {c['id']: c['nome_conta'] for c in contas}
+            mapa_nome_id = {c['nome_conta']: c['id'] for c in contas}
             
-            opcoes = {f"{l['data_lancamento']} | {mapa_contas_id_nome.get(l['conta_id'])} | {l['operacao']} | R$ {l['valor']:.2f} | {l.get('justificativa', '-')}" : l['id'] for l in lancamentos}
+            opcoes = {f"{l['data_lancamento']} | {mapa_id_nome.get(l['conta_id'])} | {l['operacao']} | R$ {l['valor']:.2f} | {l.get('justificativa', '-')}" : l['id'] for l in lancamentos}
             selecao = st.selectbox("Selecione:", list(opcoes.keys()))
             id_sel = opcoes[selecao]
             item = next(i for i in lancamentos if i["id"] == id_sel)
             
             with st.form("edit_form"):
-                n_conta = st.selectbox("Conta", list(mapa_contas_nome_id.keys()), index=list(mapa_contas_nome_id.values()).index(item['conta_id']))
+                n_conta = st.selectbox("Conta", list(mapa_nome_id.keys()), index=list(mapa_nome_id.values()).index(item['conta_id']))
                 n_op = st.selectbox("Operação", ["DEBITO", "CREDITO"], index=["DEBITO", "CREDITO"].index(item['operacao']))
                 n_val = st.number_input("Valor", value=float(item['valor']))
                 n_just = st.text_input("Justificativa", value=item.get('justificativa', ''))
                 if st.form_submit_button("Atualizar"):
-                    supabase.table("lancamentos").update({"conta_id": int(mapa_contas_nome_id[n_conta]), "operacao": n_op, "valor": float(n_val), "justificativa": n_just}).eq("id", int(id_sel)).execute()
+                    supabase.table("lancamentos").update({"conta_id": int(mapa_nome_id[n_conta]), "operacao": n_op, "valor": float(n_val), "justificativa": n_just}).eq("id", int(id_sel)).execute()
                     st.rerun()
 
 # --- ABA CONTABILIDADE ---
@@ -119,12 +119,12 @@ elif menu == "Contabilidade":
         df_c = pd.DataFrame(contas)
         df = df_l.merge(df_c, left_on='conta_id', right_on='id')
         
-        # --- A CORREÇÃO ESTÁ AQUI ---
+        # --- CORREÇÃO ROBUSTA DA JUSTIFICATIVA ---
         if 'justificativa' not in df.columns:
             df['justificativa'] = '-'
         else:
             df['justificativa'] = df['justificativa'].fillna('-')
-        # ----------------------------
+        # ----------------------------------------
             
         tab_r, tab_b = st.tabs(["Razonetes", "Balancete"])
         with tab_r:
@@ -155,3 +155,5 @@ elif menu == "Contabilidade":
                     cols[i % 2].markdown(html, unsafe_allow_html=True)
         with tab_b:
             st.table(df.groupby(['grupo', 'nome_conta', 'operacao'])['valor'].sum().unstack(fill_value=0))
+    else:
+        st.info("Sem lançamentos ou contas para processar.")
