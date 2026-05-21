@@ -25,7 +25,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- FUNÇÃO DE RELATÓRIO CONSOLIDADO (MODELO OFICIAL) ---
+# --- FUNÇÃO DE RELATÓRIO CONSOLIDADO ---
 def gerar_relatorio_consolidado(usuario, saldo_ini, saldo_fin, df_dre, df_balanco):
     pdf = FPDF()
     pdf.add_page()
@@ -54,8 +54,7 @@ def gerar_relatorio_consolidado(usuario, saldo_ini, saldo_fin, df_dre, df_balanc
     pdf.set_font("Arial", 'B', 12)
     pdf.cell(0, 10, "3. BALANÇO PATRIMONIAL CONSOLIDADO", ln=True)
     pdf.set_font("Arial", 'B', 10)
-    pdf.cell(95, 10, "Conta", border=1)
-    pdf.cell(95, 10, "Valor (R$)", border=1)
+    pdf.cell(95, 10, "Conta", border=1); pdf.cell(95, 10, "Valor (R$)", border=1)
     pdf.ln()
     pdf.set_font("Arial", size=10)
     for _, row in df_balanco.iterrows():
@@ -95,19 +94,6 @@ st.sidebar.title(f"🏢 ERP Didático")
 st.sidebar.caption(f"Usuário: {st.session_state.user.email}")
 menu = st.sidebar.radio("Navegação", ["Contabilidade", "Lançamentos", "Fluxo de Caixa", "DRE", "Estoque"])
 
-# BOTÃO NO SIDEBAR PARA RELATÓRIO COMPLETO
-if st.sidebar.button("📄 Baixar Relatório Consolidado"):
-    lanc = get_data("lancamentos")
-    cont = get_data("contas")
-    if lanc and cont:
-        df = pd.DataFrame(lanc).merge(pd.DataFrame(cont), left_on='conta_id', right_on='id')
-        # Cálculos de exemplo para o relatório
-        dre_ex = pd.DataFrame({"Desc": ["Receita", "Lucro"], "Val": [1000, 500]})
-        bal_ex = pd.DataFrame({"Conta": ["Banco"], "Val": [1000]})
-        pdf_data = gerar_relatorio_consolidado(st.session_state.user.email, 0, 1000, dre_ex, bal_ex)
-        st.download_button("Clique aqui para baixar", data=pdf_data, file_name="relatorio_final.pdf")
-    else: st.warning("Dados insuficientes.")
-
 # --- ABA LANÇAMENTOS ---
 if menu == "Lançamentos":
     st.header("📝 Lançamentos Contábeis")
@@ -142,8 +128,9 @@ if menu == "Lançamentos":
             df_g = pd.DataFrame(lancamentos)
             df_g['data_lancamento'] = pd.to_datetime(df_g['data_lancamento'])
             mapa_id_nome = {c['id']: c['nome_conta'] for c in contas}
-            opcoes = {f"{l['data_lancamento'].date()} | {mapa_id_nome.get(l['conta_id'])} | {l['operacao']} | R$ {l['valor']:.2f}" : l['id'] for l in lancamentos}
-            selecao = st.selectbox("Selecione:", list(opcoes.keys()))
+            # CORREÇÃO: Usando strftime para evitar AttributeError no .date()
+            opcoes = {f"{l['data_lancamento'].strftime('%Y-%m-%d')} | {mapa_id_nome.get(l['conta_id'])} | {l['operacao']} | R$ {l['valor']:.2f}" : l['id'] for l in lancamentos}
+            selecao = st.selectbox("Selecione para Excluir:", list(opcoes.keys()))
             if st.button("Excluir"):
                 supabase.table("lancamentos").delete().eq("id", opcoes[selecao]).execute(); st.rerun()
 
@@ -154,14 +141,13 @@ elif menu == "DRE":
     contas = get_data("contas")
     if lancamentos and contas:
         df = pd.DataFrame(lancamentos).merge(pd.DataFrame(contas), left_on='conta_id', right_on='id')
-        df['data_lancamento'] = pd.to_datetime(df['data_lancamento'])
-        # Cálculo
         receita = df[df['grupo'] == 'RECEITAS']['valor'].sum()
         cmv = df[df['grupo'] == 'CMV']['valor'].sum()
         desp = df[df['grupo'] == 'DESPESAS']['valor'].sum()
         lucro = receita - cmv - desp
         dre_data = pd.DataFrame({"Descrição": ["(+) Receita", "(-) CMV", "(-) Despesas", "(=) Lucro"], "Valor": [receita, cmv, desp, lucro]})
         st.table(dre_data)
+        if st.download_button("Baixar PDF", data=gerar_relatorio_consolidado(st.session_state.user.email, 0, lucro, dre_data, df[['nome_conta', 'valor']].head(10)), file_name="dre.pdf"): st.success("Download iniciado!")
 
 # --- ABA FLUXO DE CAIXA ---
 elif menu == "Fluxo de Caixa":
