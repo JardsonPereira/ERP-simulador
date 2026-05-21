@@ -51,9 +51,7 @@ if menu == "Lançamentos":
     st.header("Lançamentos Contábeis")
     tab1, tab2, tab3 = st.tabs(["Realizar Lançamento", "Nova Conta", "Gerenciar Lançamentos"])
     
-    # ----------------------------------------
     # TAB 2: NOVA CONTA
-    # ----------------------------------------
     with tab2:
         st.subheader("Cadastrar Conta")
         nome = st.text_input("Nome da Conta")
@@ -67,9 +65,7 @@ if menu == "Lançamentos":
             st.success("Conta salva!")
             st.rerun()
 
-    # ----------------------------------------
     # TAB 1: REALIZAR LANÇAMENTO
-    # ----------------------------------------
     with tab1:
         contas = get_data("contas")
         if not contas:
@@ -77,12 +73,10 @@ if menu == "Lançamentos":
         else:
             mapa = {c['nome_conta']: c['id'] for c in contas}
             c1, c2 = st.columns(2)
-            
             with c1:
                 conta = st.selectbox("Conta", list(mapa.keys()))
                 valor = st.number_input("Valor (R$)", min_value=0.0, format="%.2f")
-                justificativa = st.text_input("Justificativa / Histórico", placeholder="Ex: Pagamento de fornecedor")
-                
+                justificativa = st.text_input("Justificativa", placeholder="Ex: Pagamento de fornecedor")
             with c2:
                 op = st.selectbox("Operação", ["DEBITO", "CREDITO"])
                 status = st.selectbox("Status", ["ENTRADA", "PAGO", "PENDENTE", "INVESTIMENTO", "TRANSAÇÃO INTERNA"])
@@ -92,192 +86,95 @@ if menu == "Lançamentos":
                 if not justificativa:
                     st.error("Por favor, preencha a justificativa.")
                 else:
-                    supabase.table("lancamentos").insert({
-                        "user_id": st.session_state.user.id, 
-                        "conta_id": mapa[conta],
-                        "operacao": op, 
-                        "valor": valor, 
-                        "status_financeiro": status, 
-                        "data_lancamento": str(data),
-                        "justificativa": justificativa
-                    }).execute()
-                    st.success("Lançamento efetuado com sucesso!")
-                    st.rerun()
+                    try:
+                        supabase.table("lancamentos").insert({
+                            "user_id": st.session_state.user.id, 
+                            "conta_id": mapa[conta],
+                            "operacao": op, 
+                            "valor": float(valor), 
+                            "status_financeiro": status, 
+                            "data_lancamento": str(data),
+                            "justificativa": justificativa
+                        }).execute()
+                        st.success("Lançamento efetuado!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erro ao inserir: {e}")
 
-    # ----------------------------------------
-    # TAB 3: GERENCIAR (EDITAR, EXCLUIR, RESETAR)
-    # ----------------------------------------
+    # TAB 3: GERENCIAR
     with tab3:
         st.subheader("Gerenciar Lançamentos")
         lancamentos = get_data("lancamentos")
         contas = get_data("contas")
-        
         if lancamentos and contas:
             st.divider()
-            col_reset1, col_reset2 = st.columns([3, 1])
-            col_reset1.warning("⚠️ **Zona de Perigo:** Apagar todos os lançamentos é uma ação irreversível.")
-            if col_reset2.button("Resetar Todos os Lançamentos", type="primary"):
-                try:
-                    supabase.table("lancamentos").delete().eq("user_id", st.session_state.user.id).execute()
-                    st.success("Todos os lançamentos foram apagados!")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Erro ao deletar tudo: {e}")
-            st.divider()
-
             mapa_contas_id_nome = {c['id']: c['nome_conta'] for c in contas}
             mapa_contas_nome_id = {c['nome_conta']: c['id'] for c in contas}
             
-            opcoes_lancamentos = {}
-            for l in lancamentos:
-                nome_conta = mapa_contas_id_nome.get(l['conta_id'], 'Conta Desconhecida')
-                just = l.get('justificativa', '-')
-                label = f"{l['data_lancamento']} | {nome_conta} | {l['operacao']} | R$ {l['valor']:.2f} | {just}"
-                opcoes_lancamentos[label] = l['id']
+            opcoes = {f"{l['data_lancamento']} | {mapa_contas_id_nome.get(l['conta_id'])} | {l['operacao']} | R$ {l['valor']:.2f} | {l.get('justificativa', '-')}" : l['id'] for l in lancamentos}
             
-            lancamento_selecionado = st.selectbox("Selecione um lançamento para Editar/Excluir:", list(opcoes_lancamentos.keys()))
-            id_selecionado = opcoes_lancamentos[lancamento_selecionado]
+            selecao = st.selectbox("Selecione para Editar/Excluir:", list(opcoes.keys()))
+            id_sel = opcoes[selecao]
+            item = next(i for i in lancamentos if i["id"] == id_sel)
             
-            lancamento_atual = next(item for item in lancamentos if item["id"] == id_selecionado)
-            
-            with st.form("form_editar_lancamento"):
-                st.write("**Editar Lançamento Selecionado**")
+            with st.form("form_edit"):
+                nova_conta = st.selectbox("Conta", list(mapa_contas_nome_id.keys()), index=list(mapa_contas_nome_id.values()).index(item['conta_id']))
+                nova_op = st.selectbox("Operação", ["DEBITO", "CREDITO"], index=["DEBITO", "CREDITO"].index(item['operacao']))
+                novo_valor = st.number_input("Valor", value=float(item['valor']))
+                nova_just = st.text_input("Justificativa", value=item.get('justificativa', ''))
                 
-                nova_conta_nome = st.selectbox("Conta", list(mapa_contas_nome_id.keys()), index=list(mapa_contas_nome_id.values()).index(lancamento_atual['conta_id']))
-                nova_operacao = st.selectbox("Operação", ["DEBITO", "CREDITO"], index=["DEBITO", "CREDITO"].index(lancamento_atual['operacao']))
-                novo_valor = st.number_input("Valor (R$)", min_value=0.0, value=float(lancamento_atual['valor']), format="%.2f")
-                nova_justificativa = st.text_input("Justificativa", value=lancamento_atual.get('justificativa', ''))
-                
-                col_btn1, col_btn2 = st.columns(2)
-                btn_salvar = col_btn1.form_submit_button("Atualizar Lançamento")
-                btn_excluir = col_btn2.form_submit_button("Excluir Lançamento")
-                
-                if btn_salvar:
+                c1, c2 = st.columns(2)
+                if c1.form_submit_button("Atualizar"):
                     try:
-                        # Conversão explícita (int, float, str) para evitar o APIError
-                        supabase.table("lancamentos").update({
-                            "conta_id": int(mapa_contas_nome_id[nova_conta_nome]),
-                            "operacao": str(nova_operacao),
-                            "valor": float(novo_valor),
-                            "justificativa": str(nova_justificativa)
-                        }).eq("id", int(id_selecionado)).execute()
-                        st.success("Lançamento atualizado!")
+                        supabase.table("lancamentos").update({"conta_id": int(mapa_contas_nome_id[nova_conta]), "operacao": nova_op, "valor": float(novo_valor), "justificativa": nova_just}).eq("id", int(id_sel)).execute()
+                        st.success("Atualizado!")
                         st.rerun()
-                    except Exception as e:
-                        st.error(f"Erro ao atualizar: Detalhes do banco de dados: {e}")
-                    
-                if btn_excluir:
-                    try:
-                        # Conversão explícita (int) para garantir exclusão
-                        supabase.table("lancamentos").delete().eq("id", int(id_selecionado)).execute()
-                        st.success("Lançamento excluído!")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Erro ao excluir: Detalhes do banco de dados: {e}")
-        else:
-            st.info("Nenhum lançamento encontrado para gerenciar.")
+                    except Exception as e: st.error(str(e))
+                if c2.form_submit_button("Excluir"):
+                    supabase.table("lancamentos").delete().eq("id", int(id_sel)).execute()
+                    st.rerun()
 
-# --- ABA CONTABILIDADE (RAZONETES E BALANCETE) ---
+# --- ABA CONTABILIDADE ---
 elif menu == "Contabilidade":
     st.header("Contabilidade")
-    
     lancamentos = get_data("lancamentos")
     contas = get_data("contas")
-    
     if lancamentos and contas:
         df_l = pd.DataFrame(lancamentos)
         df_c = pd.DataFrame(contas)
         df = df_l.merge(df_c, left_on='conta_id', right_on='id')
+        df['justificativa'] = df.get('justificativa', '-').fillna('-')
+            
+        tab_r, tab_b = st.tabs(["Razonetes", "Balancete"])
         
-        if 'justificativa' not in df.columns:
-            df['justificativa'] = "-"
-        else:
-            df['justificativa'] = df['justificativa'].fillna("-")
-            
-        btn_razonetes, btn_balancete = st.tabs(["Ver Razonetes (Gráfico T)", "Ver Balancete de Verificação"])
-        
-        # ----------------------------------------
-        # VISUALIZAÇÃO DOS RAZONETES EM FORMATO 'T' (AGRUPADOS)
-        # ----------------------------------------
-        with btn_razonetes:
-            st.subheader("Razonetes (Contas em 'T') - Resumo por Grupo")
-            
-            grupos_existentes = df['grupo'].dropna().unique()
-            
-            for grupo in grupos_existentes:
+        with tab_r:
+            for grupo in df['grupo'].unique():
                 st.markdown(f"### 📁 {grupo}")
-                
-                df_grupo = df[df['grupo'] == grupo]
-                
+                df_g = df[df['grupo'] == grupo]
                 cols = st.columns(2)
-                col_idx = 0
-                
-                for nome_conta in df_grupo['nome_conta'].unique():
-                    dados_conta = df_grupo[df_grupo['nome_conta'] == nome_conta]
+                for i, nome_conta in enumerate(df_g['nome_conta'].unique()):
+                    d_conta = df_g[df_g['nome_conta'] == nome_conta]
+                    deb = d_conta[d_conta['operacao'] == 'DEBITO'].reset_index()
+                    cre = d_conta[d_conta['operacao'] == 'CREDITO'].reset_index()
                     
-                    debitos = dados_conta[dados_conta['operacao'] == 'DEBITO'].reset_index(drop=True)
-                    creditos = dados_conta[dados_conta['operacao'] == 'CREDITO'].reset_index(drop=True)
+                    linhas = ""
+                    for j in range(max(len(deb), len(cre))):
+                        d_v = f"{deb.loc[j, 'valor']:,.2f}" if j < len(deb) else ""
+                        d_j = f"<small style='color:gray'>({deb.loc[j, 'justificativa']})</small>" if j < len(deb) else ""
+                        c_v = f"{cre.loc[j, 'valor']:,.2f}" if j < len(cre) else ""
+                        c_j = f"<small style='color:gray'>({cre.loc[j, 'justificativa']})</small>" if j < len(cre) else ""
+                        linhas += f"<tr><td style='border-right:1px solid #999; text-align:right; font-size:12px;'>{d_v} {d_j}</td><td style='text-align:left; font-size:12px;'>{c_v} {c_j}</td></tr>"
                     
-                    total_debito = debitos['valor'].sum()
-                    total_credito = creditos['valor'].sum()
-                    saldo = total_debito - total_credito
-
-                    html_razonete = f"""<div style="display: flex; justify-content: center; margin-bottom: 40px;">
-<table style="width: 90%; border-collapse: collapse; font-family: sans-serif; background-color: transparent;">
-<tr>
-<th colspan="2" style="border-bottom: 1px solid #777; padding-bottom: 5px; font-size: 16px; font-weight: normal; text-align: center; color: var(--text-color);">{nome_conta}</th>
-</tr>
-<tr>
-<td style="border-right: 1px solid #999; color: #2e8b57; padding: 5px; text-align: center; font-size: 14px; width: 50%;">debito</td>
-<td style="color: #a32626; padding: 5px; text-align: center; font-size: 14px; width: 50%;">credito</td>
-</tr>
-<tr>
-<td style="border-right: 1px solid #999; padding: 15px 10px; text-align: right; color: #2e8b57; font-size: 15px;">{total_debito:,.2f}</td>
-<td style="padding: 15px 10px; text-align: left; color: #a32626; font-size: 15px;">{total_credito:,.2f}</td>
-</tr>
-<tr>
-<td style="border-right: 1px solid #999; border-top: 1px solid #ccc; padding: 5px 10px; text-align: center; font-weight: bold; color: #2e8b57; font-size: 15px;">{f"{saldo:,.2f}" if saldo > 0 else ""}</td>
-<td style="border-top: 1px solid #ccc; padding: 5px 10px; text-align: center; font-weight: bold; color: #a32626; font-size: 15px;">{f"{abs(saldo):,.2f}" if saldo < 0 else ""}</td>
-</tr>
-<tr>
-<td style="border-right: 1px solid #999; text-align: center; color: #2e8b57; font-size:13px;">{'0.00' if saldo == 0 else ''}</td>
-<td style="text-align: center; color: #a32626; font-size:13px;">{'0.00' if saldo == 0 else ''}</td>
-</tr>
-</table>
-</div>"""
-                    
-                    with cols[col_idx % 2]:
-                        st.markdown(html_razonete, unsafe_allow_html=True)
-                    col_idx += 1
-                
-                st.divider()
-
-        # ----------------------------------------
-        # VISUALIZAÇÃO DO BALANCETE
-        # ----------------------------------------
-        with btn_balancete:
-            st.subheader("Balancete de Verificação")
-            balancete = df.groupby(['grupo', 'nome_conta', 'operacao'])['valor'].sum().unstack(fill_value=0.0)
-            
-            if 'DEBITO' not in balancete.columns: balancete['DEBITO'] = 0.0
-            if 'CREDITO' not in balancete.columns: balancete['CREDITO'] = 0.0
-            
-            balancete['Saldo'] = balancete['DEBITO'] - balancete['CREDITO']
-            st.table(balancete)
-            
-            total_d = balancete['DEBITO'].sum()
-            total_c = balancete['CREDITO'].sum()
-            
-            st.divider()
-            if abs(total_d - total_c) < 0.01:
-                st.success(f"✅ Sistema Equilibrado! Débitos: R$ {total_d:,.2f} | Créditos: R$ {total_c:,.2f}")
-            else:
-                st.error(f"❌ Sistema DESEQUILIBRADO! Débitos: R$ {total_d:,.2f} | Créditos: R$ {total_c:,.2f}")
-
+                    html = f"""<div style="border:1px solid #ccc; padding:10px; margin-bottom:20px;">
+                    <table style="width:100%"><tr><th colspan="2" style="border-bottom:1px solid #000">{nome_conta}</th></tr>
+                    <tr><td style="border-right:1px solid #000; text-align:center">Débito</td><td style="text-align:center">Crédito</td></tr>
+                    {linhas}
+                    <tr><td style="border-right:1px solid #000; border-top:1px solid #000; text-align:right"><b>{deb['valor'].sum():,.2f}</b></td>
+                    <td style="border-top:1px solid #000; text-align:left"><b>{cre['valor'].sum():,.2f}</b></td></tr>
+                    </table></div>"""
+                    cols[i % 2].markdown(html, unsafe_allow_html=True)
+        
+        with tab_b:
+            st.table(df.groupby(['grupo', 'nome_conta', 'operacao'])['valor'].sum().unstack(fill_value=0))
     else:
-        st.info("Não há lançamentos ou contas cadastradas para exibir a contabilidade.")
-
-# --- DEMAIS MÓDULOS ---
-else:
-    st.header(f"Módulo: {menu}")
-    st.info("Funcionalidade em desenvolvimento.")
+        st.info("Sem dados.")
