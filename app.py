@@ -53,8 +53,7 @@ if menu == "Lançamentos":
         grupo = st.selectbox("Grupo", ["ATIVO CIRCULANTE", "ATIVO NÃO CIRCULANTE", "PASSIVO CIRCULANTE", "PASSIVO NÃO CIRCULANTE", "PL", "RECEITAS", "DESPESAS", "CMV"])
         if st.button("Salvar Conta"):
             supabase.table("contas").insert({"user_id": st.session_state.user.id, "nome_conta": nome, "grupo": grupo}).execute()
-            st.success("Conta salva!")
-            st.rerun()
+            st.success("Conta salva!"); st.rerun()
 
     with tab1: # Realizar Lançamento
         contas = get_data("contas")
@@ -74,36 +73,31 @@ if menu == "Lançamentos":
                     supabase.table("lancamentos").insert({"user_id": st.session_state.user.id, "conta_id": mapa[conta], "operacao": op, "valor": float(valor), "status_financeiro": status, "data_lancamento": str(data), "justificativa": just}).execute()
                     st.success("Lançamento efetuado!"); st.rerun()
 
-    with tab3: # Gerenciar: EDITAR, EXCLUIR E RESETAR
+    with tab3: # Gerenciar
         st.subheader("Gerenciar Lançamentos")
         lancamentos = get_data("lancamentos")
         contas = get_data("contas")
         if lancamentos and contas:
-            # RESETAR TUDO
             with st.expander("⚠️ Zona de Perigo"):
                 if st.button("Resetar/Apagar TODOS os lançamentos", type="primary"):
                     supabase.table("lancamentos").delete().eq("user_id", st.session_state.user.id).execute()
                     st.rerun()
-            
             mapa_id_nome = {c['id']: c['nome_conta'] for c in contas}
             mapa_nome_id = {c['nome_conta']: c['id'] for c in contas}
             opcoes = {f"{l['data_lancamento']} | {mapa_id_nome.get(l['conta_id'])} | {l['operacao']} | R$ {l['valor']:.2f} | {l.get('justificativa', '-')}" : l['id'] for l in lancamentos}
-            
             selecao = st.selectbox("Selecione para Editar/Excluir:", list(opcoes.keys()))
             id_sel = opcoes[selecao]
             item = next(i for i in lancamentos if i["id"] == id_sel)
-            
             with st.form("edit_form"):
                 n_conta = st.selectbox("Conta", list(mapa_nome_id.keys()), index=list(mapa_nome_id.values()).index(item['conta_id']))
                 n_op = st.selectbox("Operação", ["DEBITO", "CREDITO"], index=["DEBITO", "CREDITO"].index(item['operacao']))
                 n_val = st.number_input("Valor", value=float(item['valor']))
                 n_just = st.text_input("Justificativa", value=item.get('justificativa', ''))
-                
-                c_btn1, c_btn2 = st.columns(2)
-                if c_btn1.form_submit_button("Atualizar"):
+                c1, c2 = st.columns(2)
+                if c1.form_submit_button("Atualizar"):
                     supabase.table("lancamentos").update({"conta_id": int(mapa_nome_id[n_conta]), "operacao": n_op, "valor": float(n_val), "justificativa": n_just}).eq("id", int(id_sel)).execute()
                     st.rerun()
-                if c_btn2.form_submit_button("Excluir Lançamento", type="primary"):
+                if c2.form_submit_button("Excluir", type="primary"):
                     supabase.table("lancamentos").delete().eq("id", int(id_sel)).execute()
                     st.rerun()
 
@@ -114,13 +108,29 @@ elif menu == "Contabilidade":
     contas = get_data("contas")
     if lancamentos and contas:
         df = pd.DataFrame(lancamentos).merge(pd.DataFrame(contas), left_on='conta_id', right_on='id')
-        df['justificativa'] = df['justificativa'].fillna('-') if 'justificativa' in df.columns else '-'
+        
+        # Correção Robustez Justificativa
+        if 'justificativa' not in df.columns: df = df.assign(justificativa='-')
+        df['justificativa'] = df['justificativa'].fillna('-')
+        
+        # Filtro de Período
+        df['data_lancamento'] = pd.to_datetime(df['data_lancamento'])
+        st.subheader("Filtrar por Período")
+        c1, c2 = st.columns(2)
+        d_inicio = c1.date_input("Data Início", value=df['data_lancamento'].min().date())
+        d_fim = c2.date_input("Data Fim", value=df['data_lancamento'].max().date())
+        
+        # Aplicação do Filtro
+        mask = (df['data_lancamento'].dt.date >= d_inicio) & (df['data_lancamento'].dt.date <= d_fim)
+        df_f = df.loc[mask]
+        
+        st.divider()
             
         tab_r, tab_b = st.tabs(["Razonetes", "Balancete"])
         with tab_r:
-            for grupo in df['grupo'].unique():
+            for grupo in df_f['grupo'].unique():
                 st.markdown(f"### 📁 {grupo}")
-                df_g = df[df['grupo'] == grupo]
+                df_g = df_f[df_f['grupo'] == grupo]
                 cols = st.columns(2)
                 for i, nome_conta in enumerate(df_g['nome_conta'].unique()):
                     d_conta = df_g[df_g['nome_conta'] == nome_conta]
@@ -144,4 +154,6 @@ elif menu == "Contabilidade":
                     </table></div>"""
                     cols[i % 2].markdown(html, unsafe_allow_html=True)
         with tab_b:
-            st.table(df.groupby(['grupo', 'nome_conta', 'operacao'])['valor'].sum().unstack(fill_value=0))
+            st.table(df_f.groupby(['grupo', 'nome_conta', 'operacao'])['valor'].sum().unstack(fill_value=0))
+    else:
+        st.info("Sem dados.")
