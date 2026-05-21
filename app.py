@@ -4,7 +4,7 @@ import os
 from supabase import create_client
 from dotenv import load_dotenv
 
-# Configuração
+# --- CONFIGURAÇÃO INICIAL ---
 load_dotenv()
 url = os.environ.get("SUPABASE_URL")
 key = os.environ.get("SUPABASE_KEY")
@@ -38,12 +38,14 @@ if 'user' not in st.session_state:
             st.error(f"Falha no login: {e}")
     st.stop()
 
+# --- FUNÇÕES AUXILIARES ---
+def get_data(table):
+    return supabase.table(table).select("*").eq("user_id", st.session_state.user.id).execute().data
+
 # --- INTERFACE PRINCIPAL ---
 st.sidebar.title(f"ERP: {st.session_state.user.email}")
 menu = st.sidebar.radio("Navegação", ["Contabilidade", "Lançamentos", "Estoque", "DRE", "Fluxo de Caixa"])
 
-def get_data(table):
-    return supabase.table(table).select("*").eq("user_id", st.session_state.user.id).execute().data
 
 # --- ABA LANÇAMENTOS ---
 if menu == "Lançamentos":
@@ -55,7 +57,11 @@ if menu == "Lançamentos":
         nome = st.text_input("Nome da Conta")
         grupo = st.selectbox("Grupo", ["ATIVO CIRCULANTE", "ATIVO NÃO CIRCULANTE", "PASSIVO CIRCULANTE", "PASSIVO NÃO CIRCULANTE", "PL", "RECEITAS", "DESPESAS", "CMV"])
         if st.button("Salvar Conta"):
-            supabase.table("contas").insert({"user_id": st.session_state.user.id, "nome_conta": nome, "grupo": grupo}).execute()
+            supabase.table("contas").insert({
+                "user_id": st.session_state.user.id, 
+                "nome_conta": nome, 
+                "grupo": grupo
+            }).execute()
             st.success("Conta salva!")
             st.rerun()
 
@@ -66,24 +72,36 @@ if menu == "Lançamentos":
         else:
             mapa = {c['nome_conta']: c['id'] for c in contas}
             c1, c2 = st.columns(2)
+            
             with c1:
                 conta = st.selectbox("Conta", list(mapa.keys()))
                 valor = st.number_input("Valor (R$)", min_value=0.0, format="%.2f")
+                justificativa = st.text_input("Justificativa / Histórico", placeholder="Ex: Pagamento de fornecedor")
+                
             with c2:
                 op = st.selectbox("Operação", ["DEBITO", "CREDITO"])
                 status = st.selectbox("Status", ["ENTRADA", "PAGO", "PENDENTE", "INVESTIMENTO", "TRANSAÇÃO INTERNA"])
                 data = st.date_input("Data do Lançamento")
             
             if st.button("Confirmar Lançamento"):
-                supabase.table("lancamentos").insert({
-                    "user_id": st.session_state.user.id, "conta_id": mapa[conta],
-                    "operacao": op, "valor": valor, "status_financeiro": status, "data_lancamento": str(data)
-                }).execute()
-                st.success("Lançamento efetuado!")
+                if not justificativa:
+                    st.error("Por favor, preencha a justificativa do lançamento.")
+                else:
+                    supabase.table("lancamentos").insert({
+                        "user_id": st.session_state.user.id, 
+                        "conta_id": mapa[conta],
+                        "operacao": op, 
+                        "valor": valor, 
+                        "status_financeiro": status, 
+                        "data_lancamento": str(data),
+                        "justificativa": justificativa # Novo campo adicionado
+                    }).execute()
+                    st.success("Lançamento efetuado com sucesso!")
+
 
 # --- ABA CONTABILIDADE (RAZONETES E BALANCETE) ---
 elif menu == "Contabilidade":
-    st.header("Contabilidade: Razonetes e Balancete")
+    st.header("Contabilidade")
     
     lancamentos = get_data("lancamentos")
     contas = get_data("contas")
@@ -93,32 +111,49 @@ elif menu == "Contabilidade":
         df_c = pd.DataFrame(contas)
         df = df_l.merge(df_c, left_on='conta_id', right_on='id')
         
-        # 1. Razonetes (Visualização tipo 'T')
-        st.subheader("Razonetes (Movimentações)")
-        for nome_conta in df['nome_conta'].unique():
-            with st.expander(f"Razonete: {nome_conta}"):
-                st.table(df[df['nome_conta'] == nome_conta][['operacao', 'valor', 'data_lancamento']])
-
-        # 2. Balancete de Verificação
-        st.subheader("Balancete de Verificação")
-        balancete = df.groupby(['grupo', 'nome_conta', 'operacao'])['valor'].sum().unstack(fill_value=0.0)
-        
-        # Garantir colunas DEBITO e CREDITO
-        if 'DEBITO' not in balancete.columns: balancete['DEBITO'] = 0.0
-        if 'CREDITO' not in balancete.columns: balancete['CREDITO'] = 0.0
-        
-        balancete['Saldo'] = balancete['DEBITO'] - balancete['CREDITO']
-        st.table(balancete)
-        
-        # Verificação de Equilíbrio
-        total_d = balancete['DEBITO'].sum()
-        total_c = balancete['CREDITO'].sum()
-        
-        if abs(total_d - total_c) < 0.01:
-            st.success(f"Sistema Equilibrado! Total Débitos: R${total_d:,.2f} | Total Créditos: R${total_c:,.2f}")
+        # Garantir que a coluna justificativa exista (para evitar erro caso haja dados antigos no banco sem essa coluna)
+        if 'justificativa' not in df.columns:
+            df['justificativa'] = "-"
         else:
-            st.error(f"Sistema DESEQUILIBRADO! Débitos: R${total_d:,.2f} | Créditos: R${total_c:,.2f}")
+            df['justificativa'] = df['justificativa'].fillna("-")
+            
+        # --- SEPARAÇÃO EM DOIS BOTÕES (USANDO TABS) ---
+        # Tabs funcionam como botões perfeitamente integrados para alternar visualizações
+        btn_razonetes, btn_balancete = st.tabs(["Ver Razonetes", "Ver Balancete de Verificação"])
+        
+        with btn_razonetes:
+            st.subheader("Razonetes (Movimentações)")
+            for nome_conta in df['nome_conta'].unique():
+                with st.expander(f"Razonete: {nome_conta}"):
+                    # Seleciona as colunas, agora incluindo a justificativa
+                    colunas_exibicao = ['data_lancamento', 'operacao', 'valor', 'justificativa']
+                    st.table(df[df['nome_conta'] == nome_conta][colunas_exibicao])
 
+        with btn_balancete:
+            st.subheader("Balancete de Verificação")
+            balancete = df.groupby(['grupo', 'nome_conta', 'operacao'])['valor'].sum().unstack(fill_value=0.0)
+            
+            # Garantir colunas DEBITO e CREDITO
+            if 'DEBITO' not in balancete.columns: balancete['DEBITO'] = 0.0
+            if 'CREDITO' not in balancete.columns: balancete['CREDITO'] = 0.0
+            
+            balancete['Saldo'] = balancete['DEBITO'] - balancete['CREDITO']
+            st.table(balancete)
+            
+            # Verificação de Equilíbrio
+            total_d = balancete['DEBITO'].sum()
+            total_c = balancete['CREDITO'].sum()
+            
+            st.divider()
+            if abs(total_d - total_c) < 0.01:
+                st.success(f"✅ Sistema Equilibrado! Total Débitos: R$ {total_d:,.2f} | Total Créditos: R$ {total_c:,.2f}")
+            else:
+                st.error(f"❌ Sistema DESEQUILIBRADO! Débitos: R$ {total_d:,.2f} | Créditos: R$ {total_c:,.2f}")
+
+    else:
+        st.info("Não há lançamentos ou contas cadastradas para exibir a contabilidade.")
+
+# --- DEMAIS MÓDULOS ---
 else:
     st.header(f"Módulo: {menu}")
     st.info("Funcionalidade em desenvolvimento.")
