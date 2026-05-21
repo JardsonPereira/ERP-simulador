@@ -153,21 +153,22 @@ elif menu == "Fluxo de Caixa":
         d_inicio = c1.date_input("Início", value=df['data_lancamento'].min().date())
         d_fim = c2.date_input("Fim", value=df['data_lancamento'].max().date())
         
-        # Filtros
+        # Filtros para o período e anterior (para saldo inicial)
         mask_periodo = (df['data_lancamento'].dt.date >= d_inicio) & (df['data_lancamento'].dt.date <= d_fim)
         mask_anterior = (df['data_lancamento'].dt.date < d_inicio)
         
-        # Identificar contas de CAIXA (Ativo Circulante)
-        df_caixa = df[df['grupo'] == 'ATIVO CIRCULANTE'].copy()
-        df_caixa['fluxo'] = df_caixa.apply(lambda x: x['valor'] if x['operacao'] == 'CREDITO' else -x['valor'], axis=1)
+        # Lógica ampla de Fluxo para o período
+        df_fc = df.loc[mask_periodo & df['status_financeiro'].isin(['ENTRADA', 'PAGO'])].copy()
+        df_fc['fluxo'] = df_fc.apply(lambda x: x['valor'] if x['operacao'] == 'CREDITO' else -x['valor'], axis=1)
         
-        # Saldo Inicial
-        saldo_inicial = df_caixa[mask_anterior]['fluxo'].sum()
+        # Saldo Inicial (considerando contas do grupo CAIXA/ATIVO CIRCULANTE antes da data)
+        df_caixa_anterior = df[(df['grupo'] == 'ATIVO CIRCULANTE') & mask_anterior]
+        df_caixa_anterior['fluxo'] = df_caixa_anterior.apply(lambda x: x['valor'] if x['operacao'] == 'CREDITO' else -x['valor'], axis=1)
+        saldo_inicial = df_caixa_anterior['fluxo'].sum()
         
-        # Período
-        df_periodo = df_caixa[mask_periodo & df['status_financeiro'].isin(['ENTRADA', 'PAGO'])]
-        entradas = df_periodo[df_periodo['fluxo'] > 0]['fluxo'].sum()
-        saidas = abs(df_periodo[df_periodo['fluxo'] < 0]['fluxo'].sum())
+        # Totais
+        entradas = df_fc[df_fc['fluxo'] > 0]['fluxo'].sum()
+        saidas = abs(df_fc[df_fc['fluxo'] < 0]['fluxo'].sum())
         
         # Métricas
         st.subheader("Resumo Financeiro")
@@ -177,12 +178,11 @@ elif menu == "Fluxo de Caixa":
         k3.metric("Saídas", f"R$ {saidas:,.2f}")
         k4.metric("Saldo Final", f"R$ {(saldo_inicial + entradas - saidas):,.2f}")
         
-        st.table(df_periodo[['data_lancamento', 'nome_conta', 'operacao', 'valor', 'status_financeiro']])
+        st.table(df_fc[['data_lancamento', 'nome_conta', 'operacao', 'valor', 'status_financeiro']])
         
         # Passivo
         st.subheader("Situação do Passivo")
         df_passivo = df[df['grupo'].isin(['PASSIVO CIRCULANTE', 'PASSIVO NÃO CIRCULANTE'])]
-        # Calculando saldo (assumindo que Crédito aumenta Passivo)
         df_passivo['val_contabil'] = df_passivo.apply(lambda x: x['valor'] if x['operacao'] == 'CREDITO' else -x['valor'], axis=1)
         resumo_passivo = df_passivo.groupby('grupo')['val_contabil'].sum().reset_index()
         total_passivo = resumo_passivo['val_contabil'].sum()
