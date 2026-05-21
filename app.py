@@ -50,7 +50,7 @@ if menu == "Lançamentos":
     with tab2:
         st.subheader("Cadastrar Conta")
         nome = st.text_input("Nome da Conta")
-        grupo = st.selectbox("Grupo", ["ATIVO CIRCULANTE", "ATIVO NÃO CIRCULANTE", "PASSIVO CIRCULANTE", "PASSIVO NÃO CIRCULANTE", "PL", "RECEITAS", "DESPESAS", "CMV", "ENCARGOS FINANCEIROS"])
+        grupo = st.selectbox("Grupo", ["ATIVO CIRCULANTE", "ATIVO CIRCULANTE ESTOQUE", "ATIVO NÃO CIRCULANTE", "PASSIVO CIRCULANTE", "PASSIVO NÃO CIRCULANTE", "PL", "RECEITAS", "DESPESAS", "CMV", "ENCARGOS FINANCEIROS"])
         if st.button("Salvar Conta"):
             supabase.table("contas").insert({"user_id": st.session_state.user.id, "nome_conta": nome, "grupo": grupo}).execute()
             st.success("Conta salva!"); st.rerun()
@@ -153,24 +153,19 @@ elif menu == "Fluxo de Caixa":
         d_inicio = c1.date_input("Início", value=df['data_lancamento'].min().date())
         d_fim = c2.date_input("Fim", value=df['data_lancamento'].max().date())
         
-        # Filtros para o período e anterior (para saldo inicial)
         mask_periodo = (df['data_lancamento'].dt.date >= d_inicio) & (df['data_lancamento'].dt.date <= d_fim)
         mask_anterior = (df['data_lancamento'].dt.date < d_inicio)
         
-        # Lógica ampla de Fluxo para o período
         df_fc = df.loc[mask_periodo & df['status_financeiro'].isin(['ENTRADA', 'PAGO'])].copy()
         df_fc['fluxo'] = df_fc.apply(lambda x: x['valor'] if x['operacao'] == 'CREDITO' else -x['valor'], axis=1)
         
-        # Saldo Inicial (considerando contas do grupo CAIXA/ATIVO CIRCULANTE antes da data)
         df_caixa_anterior = df[(df['grupo'] == 'ATIVO CIRCULANTE') & mask_anterior]
         df_caixa_anterior['fluxo'] = df_caixa_anterior.apply(lambda x: x['valor'] if x['operacao'] == 'CREDITO' else -x['valor'], axis=1)
         saldo_inicial = df_caixa_anterior['fluxo'].sum()
         
-        # Totais
         entradas = df_fc[df_fc['fluxo'] > 0]['fluxo'].sum()
         saidas = abs(df_fc[df_fc['fluxo'] < 0]['fluxo'].sum())
         
-        # Métricas
         st.subheader("Resumo Financeiro")
         k1, k2, k3, k4 = st.columns(4)
         k1.metric("Saldo Inicial", f"R$ {saldo_inicial:,.2f}")
@@ -180,7 +175,6 @@ elif menu == "Fluxo de Caixa":
         
         st.table(df_fc[['data_lancamento', 'nome_conta', 'operacao', 'valor', 'status_financeiro']])
         
-        # Passivo
         st.subheader("Situação do Passivo")
         df_passivo = df[df['grupo'].isin(['PASSIVO CIRCULANTE', 'PASSIVO NÃO CIRCULANTE'])]
         df_passivo['val_contabil'] = df_passivo.apply(lambda x: x['valor'] if x['operacao'] == 'CREDITO' else -x['valor'], axis=1)
@@ -191,13 +185,40 @@ elif menu == "Fluxo de Caixa":
         col_p1.table(resumo_passivo)
         col_p2.metric("Total Geral Passivo", f"R$ {total_passivo:,.2f}")
         
-        # Liquidez
         ativo_circulante = df[df['grupo'] == 'ATIVO CIRCULANTE']['valor'].sum()
         passivo_circ = df[df['grupo'] == 'PASSIVO CIRCULANTE']['valor'].sum()
         liquidez = (ativo_circulante / passivo_circ) if passivo_circ > 0 else 0
         st.info(f"Índice de Liquidez Corrente (Ativo Circ. / Passivo Circ.): {liquidez:.2f}")
 
     else: st.info("Sem dados.")
+
+# --- ABA ESTOQUE ---
+elif menu == "Estoque":
+    st.header("Movimentação de Estoque")
+    lancamentos = get_data("lancamentos")
+    contas = get_data("contas")
+    
+    if lancamentos and contas:
+        df = pd.DataFrame(lancamentos).merge(pd.DataFrame(contas), left_on='conta_id', right_on='id')
+        
+        # Filtro de grupo: ATIVO CIRCULANTE ESTOQUE (Entrada) ou CMV (Saída)
+        df_est = df[df['grupo'].isin(['ATIVO CIRCULANTE ESTOQUE', 'CMV'])].copy()
+        
+        # Lógica: Estoque = Entradas - Saídas
+        df_est['movimentacao'] = df_est.apply(lambda x: x['valor'] if x['grupo'] == 'ATIVO CIRCULANTE ESTOQUE' else -x['valor'], axis=1)
+        
+        total_entradas = df_est[df_est['grupo'] == 'ATIVO CIRCULANTE ESTOQUE']['valor'].sum()
+        total_saidas = df_est[df_est['grupo'] == 'CMV']['valor'].sum()
+        
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Entradas (Estoque)", f"R$ {total_entradas:,.2f}")
+        c2.metric("Saídas (CMV)", f"R$ {total_saidas:,.2f}")
+        c3.metric("Saldo em Estoque", f"R$ {total_entradas - total_saidas:,.2f}")
+        
+        st.subheader("Detalhamento de Movimentações")
+        st.table(df_est[['data_lancamento', 'nome_conta', 'grupo', 'valor']])
+    else:
+        st.info("Nenhuma movimentação de estoque registrada.")
 
 # --- ABA CONTABILIDADE ---
 elif menu == "Contabilidade":
@@ -244,19 +265,12 @@ elif menu == "Contabilidade":
                     
         with tab_b:
             st.subheader("Balancete de Verificação")
-            # Agrupamento para criar a tabela de balancete flat
             bal = df_f.groupby(['grupo', 'nome_conta', 'operacao'])['valor'].sum().unstack(fill_value=0.0)
             if 'DEBITO' not in bal.columns: bal['DEBITO'] = 0.0
             if 'CREDITO' not in bal.columns: bal['CREDITO'] = 0.0
-            
-            # Cálculo de Saldos
             bal['SALDO DEVEDOR'] = bal.apply(lambda x: x['DEBITO'] - x['CREDITO'] if x['DEBITO'] > x['CREDITO'] else 0.0, axis=1)
             bal['SALDO CREDOR'] = bal.apply(lambda x: x['CREDITO'] - x['DEBITO'] if x['CREDITO'] > x['DEBITO'] else 0.0, axis=1)
-            
-            # Reset index para mostrar Grupo e Conta como colunas
             bal_final = bal.reset_index()
-            
-            # Adição da linha de total
             total_row = pd.DataFrame({
                 'grupo': ['TOTAL GERAL'],
                 'nome_conta': [''],
@@ -265,9 +279,7 @@ elif menu == "Contabilidade":
                 'SALDO DEVEDOR': [bal['SALDO DEVEDOR'].sum()],
                 'SALDO CREDOR': [bal['SALDO CREDOR'].sum()]
             })
-            
             bal_final = pd.concat([bal_final, total_row], ignore_index=True)
-            
             st.table(bal_final.style.format({"DEBITO": "R$ {:,.2f}", "CREDITO": "R$ {:,.2f}", "SALDO DEVEDOR": "R$ {:,.2f}", "SALDO CREDOR": "R$ {:,.2f}"}))
     else:
         st.info("Sem dados.")
