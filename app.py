@@ -3,8 +3,8 @@ from supabase import create_client
 import pandas as pd
 
 # Configuração Supabase
-SUPABASE_URL = "SUA_URL_AQUI"
-SUPABASE_KEY = "SUA_KEY_AQUI"
+SUPABASE_URL="https://ejdvfuczdnpyhuosruey.supabase.co"
+SUPABASE_KEY="sb_publishable_6x5uVjXcIh4KnlpQSFOv_g_P6rnEw08"
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 st.set_page_config(layout="wide")
