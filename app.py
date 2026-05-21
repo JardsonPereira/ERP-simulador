@@ -18,7 +18,6 @@ if 'user' not in st.session_state:
     email = st.text_input("Email")
     password = st.text_input("Senha", type="password")
     username = st.text_input("Nome de Usuário")
-    
     col1, col2 = st.columns(2)
     if col1.button("Cadastrar"):
         res = supabase.auth.sign_up({"email": email, "password": password})
@@ -26,16 +25,13 @@ if 'user' not in st.session_state:
             try:
                 supabase.table("profiles").insert({"id": res.user.id, "username": username}).execute()
                 st.success("Conta criada! Faça login.")
-            except Exception as e:
-                st.error(f"Erro ao salvar perfil: {e}")
-            
+            except Exception as e: st.error(f"Erro: {e}")
     if col2.button("Entrar"):
         try:
             res = supabase.auth.sign_in_with_password({"email": email, "password": password})
             st.session_state.user = res.user
             st.rerun()
-        except Exception as e:
-            st.error(f"Falha no login: {e}")
+        except Exception as e: st.error(f"Falha no login: {e}")
     st.stop()
 
 # --- FUNÇÕES AUXILIARES ---
@@ -62,8 +58,7 @@ if menu == "Lançamentos":
 
     with tab1: # Realizar Lançamento
         contas = get_data("contas")
-        if not contas:
-            st.warning("Crie uma conta primeiro.")
+        if not contas: st.warning("Crie uma conta primeiro.")
         else:
             mapa = {c['nome_conta']: c['id'] for c in contas}
             c1, c2 = st.columns(2)
@@ -73,53 +68,44 @@ if menu == "Lançamentos":
             op = c2.selectbox("Operação", ["DEBITO", "CREDITO"])
             status = c2.selectbox("Status", ["ENTRADA", "PAGO", "PENDENTE", "INVESTIMENTO", "TRANSAÇÃO INTERNA"])
             data = c2.date_input("Data do Lançamento")
-            
             if st.button("Confirmar Lançamento"):
                 if not just: st.error("Preencha a justificativa.")
                 else:
-                    try:
-                        supabase.table("lancamentos").insert({
-                            "user_id": st.session_state.user.id, "conta_id": mapa[conta],
-                            "operacao": op, "valor": float(valor), "status_financeiro": status,
-                            "data_lancamento": str(data), "justificativa": just
-                        }).execute()
-                        st.success("Lançamento efetuado!")
-                        st.rerun()
-                    except Exception as e: st.error(f"Erro ao inserir: {e}")
+                    supabase.table("lancamentos").insert({"user_id": st.session_state.user.id, "conta_id": mapa[conta], "operacao": op, "valor": float(valor), "status_financeiro": status, "data_lancamento": str(data), "justificativa": just}).execute()
+                    st.success("Lançamento efetuado!"); st.rerun()
 
-    with tab3: # Gerenciar Lançamentos (EXCLUIR E RESETAR)
+    with tab3: # Gerenciar: EDITAR, EXCLUIR E RESETAR
         st.subheader("Gerenciar Lançamentos")
         lancamentos = get_data("lancamentos")
         contas = get_data("contas")
-        
         if lancamentos and contas:
-            # --- ZONA DE PERIGO: RESETAR TUDO ---
-            with st.expander("⚠️ Zona de Perigo: Operações Globais"):
+            # RESETAR TUDO
+            with st.expander("⚠️ Zona de Perigo"):
                 if st.button("Resetar/Apagar TODOS os lançamentos", type="primary"):
-                    try:
-                        supabase.table("lancamentos").delete().eq("user_id", st.session_state.user.id).execute()
-                        st.success("Todos os lançamentos foram apagados!")
-                        st.rerun()
-                    except Exception as e: st.error(f"Erro: {e}")
+                    supabase.table("lancamentos").delete().eq("user_id", st.session_state.user.id).execute()
+                    st.rerun()
             
-            st.divider()
-            
-            # --- EXCLUIR LANÇAMENTO ESPECÍFICO ---
             mapa_id_nome = {c['id']: c['nome_conta'] for c in contas}
+            mapa_nome_id = {c['nome_conta']: c['id'] for c in contas}
             opcoes = {f"{l['data_lancamento']} | {mapa_id_nome.get(l['conta_id'])} | {l['operacao']} | R$ {l['valor']:.2f} | {l.get('justificativa', '-')}" : l['id'] for l in lancamentos}
             
-            selecao = st.selectbox("Selecione um lançamento para excluir:", list(opcoes.keys()))
+            selecao = st.selectbox("Selecione para Editar/Excluir:", list(opcoes.keys()))
             id_sel = opcoes[selecao]
+            item = next(i for i in lancamentos if i["id"] == id_sel)
             
-            if st.button("Excluir Lançamento Selecionado", type="primary"):
-                try:
-                    supabase.table("lancamentos").delete().eq("id", int(id_sel)).execute()
-                    st.success("Lançamento excluído com sucesso!")
+            with st.form("edit_form"):
+                n_conta = st.selectbox("Conta", list(mapa_nome_id.keys()), index=list(mapa_nome_id.values()).index(item['conta_id']))
+                n_op = st.selectbox("Operação", ["DEBITO", "CREDITO"], index=["DEBITO", "CREDITO"].index(item['operacao']))
+                n_val = st.number_input("Valor", value=float(item['valor']))
+                n_just = st.text_input("Justificativa", value=item.get('justificativa', ''))
+                
+                c_btn1, c_btn2 = st.columns(2)
+                if c_btn1.form_submit_button("Atualizar"):
+                    supabase.table("lancamentos").update({"conta_id": int(mapa_nome_id[n_conta]), "operacao": n_op, "valor": float(n_val), "justificativa": n_just}).eq("id", int(id_sel)).execute()
                     st.rerun()
-                except Exception as e: st.error(f"Erro: {e}")
-
-        else:
-            st.info("Nenhum lançamento encontrado para gerenciar.")
+                if c_btn2.form_submit_button("Excluir Lançamento", type="primary"):
+                    supabase.table("lancamentos").delete().eq("id", int(id_sel)).execute()
+                    st.rerun()
 
 # --- ABA CONTABILIDADE ---
 elif menu == "Contabilidade":
@@ -128,10 +114,7 @@ elif menu == "Contabilidade":
     contas = get_data("contas")
     if lancamentos and contas:
         df = pd.DataFrame(lancamentos).merge(pd.DataFrame(contas), left_on='conta_id', right_on='id')
-        
-        # Correção de segurança da coluna
-        df['justificativa'] = df['justificativa'] if 'justificativa' in df.columns else '-'
-        df['justificativa'] = df['justificativa'].fillna('-')
+        df['justificativa'] = df['justificativa'].fillna('-') if 'justificativa' in df.columns else '-'
             
         tab_r, tab_b = st.tabs(["Razonetes", "Balancete"])
         with tab_r:
@@ -162,5 +145,3 @@ elif menu == "Contabilidade":
                     cols[i % 2].markdown(html, unsafe_allow_html=True)
         with tab_b:
             st.table(df.groupby(['grupo', 'nome_conta', 'operacao'])['valor'].sum().unstack(fill_value=0))
-    else:
-        st.info("Sem dados para exibir a contabilidade.")
