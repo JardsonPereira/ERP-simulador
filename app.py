@@ -73,7 +73,7 @@ if menu == "Lançamentos":
                     supabase.table("lancamentos").insert({"user_id": st.session_state.user.id, "conta_id": mapa[conta], "operacao": op, "valor": float(valor), "status_financeiro": status, "data_lancamento": str(data), "justificativa": just}).execute()
                     st.success("Lançamento efetuado!"); st.rerun()
 
-    with tab3: # Gerenciar
+    with tab3: # Gerenciar: EDIÇÃO COMPLETA
         st.subheader("Gerenciar Lançamentos")
         lancamentos = get_data("lancamentos")
         contas = get_data("contas")
@@ -82,20 +82,36 @@ if menu == "Lançamentos":
                 if st.button("Resetar/Apagar TODOS os lançamentos", type="primary"):
                     supabase.table("lancamentos").delete().eq("user_id", st.session_state.user.id).execute()
                     st.rerun()
+            
             mapa_id_nome = {c['id']: c['nome_conta'] for c in contas}
             mapa_nome_id = {c['nome_conta']: c['id'] for c in contas}
             opcoes = {f"{l['data_lancamento']} | {mapa_id_nome.get(l['conta_id'])} | {l['operacao']} | R$ {l['valor']:.2f} | {l.get('justificativa', '-')}" : l['id'] for l in lancamentos}
+            
             selecao = st.selectbox("Selecione para Editar/Excluir:", list(opcoes.keys()))
             id_sel = opcoes[selecao]
             item = next(i for i in lancamentos if i["id"] == id_sel)
+            
             with st.form("edit_form"):
                 n_conta = st.selectbox("Conta", list(mapa_nome_id.keys()), index=list(mapa_nome_id.values()).index(item['conta_id']))
                 n_op = st.selectbox("Operação", ["DEBITO", "CREDITO"], index=["DEBITO", "CREDITO"].index(item['operacao']))
                 n_val = st.number_input("Valor", value=float(item['valor']))
                 n_just = st.text_input("Justificativa", value=item.get('justificativa', ''))
+                
+                # Novos campos editáveis
+                status_list = ["ENTRADA", "PAGO", "PENDENTE", "INVESTIMENTO", "TRANSAÇÃO INTERNA"]
+                n_status = st.selectbox("Status", status_list, index=status_list.index(item.get('status_financeiro', 'ENTRADA')))
+                n_data = st.date_input("Data", value=pd.to_datetime(item['data_lancamento']))
+                
                 c1, c2 = st.columns(2)
-                if c1.form_submit_button("Atualizar"):
-                    supabase.table("lancamentos").update({"conta_id": int(mapa_nome_id[n_conta]), "operacao": n_op, "valor": float(n_val), "justificativa": n_just}).eq("id", int(id_sel)).execute()
+                if c1.form_submit_button("Atualizar Completo"):
+                    supabase.table("lancamentos").update({
+                        "conta_id": int(mapa_nome_id[n_conta]), 
+                        "operacao": n_op, 
+                        "valor": float(n_val), 
+                        "justificativa": n_just,
+                        "status_financeiro": n_status,
+                        "data_lancamento": str(n_data)
+                    }).eq("id", int(id_sel)).execute()
                     st.rerun()
                 if c2.form_submit_button("Excluir", type="primary"):
                     supabase.table("lancamentos").delete().eq("id", int(id_sel)).execute()
