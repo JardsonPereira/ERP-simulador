@@ -13,15 +13,11 @@ def resetar_lancamentos(user_id):
     supabase = get_supabase()
     return supabase.table("lancamentos").delete().eq("user_id", user_id).execute()
 
+def deletar_lancamento_por_id(id):
+    supabase = get_supabase()
+    return supabase.table("lancamentos").delete().eq("id", id).execute()
+
 def check_auth():
     if "user" not in st.session_state:
         st.error("Usuário não autenticado.")
         st.stop()
-
-def inject_css():
-    st.markdown("""
-        <style>
-            .stApp { background-color: #f9f9f9; }
-            .stButton>button { width: 100%; border-radius: 5px; }
-        </style>
-    """, unsafe_allow_html=True)
