@@ -446,7 +446,21 @@ with f1: data_ini = st.date_input("Início do Período", value=datetime.now().da
 with f2: data_fim = st.date_input("Fim do Período", value=datetime.now().date())
 
 # Segregação de Dataframes para consistência contábil
-df_periodo = df_base[(df_base['data_lancamento'] >= data_ini) & (df_base['data_lancamento'] <= data_fim)].copy()
+# --- SUBSTITUA A LINHA 449 E O BLOCO AO REDOR POR ISTO: ---
+
+# 1. Garante que os nomes das colunas estão limpos
+df_base.columns = df_base.columns.str.strip()
+
+# 2. Diagnóstico: Se a coluna 'data_lancamento' sumiu, o app vai te avisar
+if 'data_lancamento' not in df_base.columns:
+    st.error("ERRO CRÍTICO: O Pandas não encontrou a coluna 'data_lancamento'.")
+    st.write("Colunas que o Pandas está enxergando agora:", df_base.columns.tolist())
+    st.stop() # O app para aqui e mostra a lista de colunas na tela
+
+# 3. Se passou pelo erro, executa o seu filtro normalmente
+df_base['data_lancamento'] = pd.to_datetime(df_base['data_lancamento'])
+df_periodo = df_base[(df_base['data_lancamento'] >= pd.to_datetime(data_ini)) & 
+                     (df_base['data_lancamento'] <= pd.to_datetime(data_fim))].copy()
 df_balanco = df_base[df_base['data_lancamento'] <= data_fim].copy() # Correção: Balanço Patrimonial é acumulado histórico
 
 # --- LÓGICA DE SALDO E CONTINUIDADE ---
