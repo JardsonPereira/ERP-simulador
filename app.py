@@ -444,7 +444,7 @@ st.divider()
 f1, f2 = st.columns(2)
 with f1: data_ini = st.date_input("Início do Período", value=datetime.now().date().replace(day=1))
 with f2: data_fim = st.date_input("Fim do Período", value=datetime.now().date())
-
+st.write("Colunas encontradas no DataFrame:", df_base.columns.tolist())
 # Segregação de Dataframes para consistência contábil
 df_periodo = df_base[(df_base['data_lancamento'] >= data_ini) & (df_base['data_lancamento'] <= data_fim)].copy()
 df_balanco = df_base[df_base['data_lancamento'] <= data_fim].copy() # Correção: Balanço Patrimonial é acumulado histórico
