@@ -208,13 +208,8 @@ elif menu == "Estoque":
     
     if lancamentos and contas:
         df = pd.DataFrame(lancamentos).merge(pd.DataFrame(contas), left_on='conta_id', right_on='id')
-        
-        # Filtra apenas o grupo de estoque
         df_est = df[df['grupo'] == 'ATIVO CIRCULANTE ESTOQUE'].copy()
-        
-        # Débito aumenta (entrada), Crédito diminui (saída)
         df_est['tipo'] = df_est.apply(lambda x: "Entrada" if x['operacao'] == 'DEBITO' else "Saída", axis=1)
-        df_est['valor_final'] = df_est.apply(lambda x: x['valor'] if x['operacao'] == 'DEBITO' else -x['valor'], axis=1)
         
         total_entradas = df_est[df_est['operacao'] == 'DEBITO']['valor'].sum()
         total_saidas = df_est[df_est['operacao'] == 'CREDITO']['valor'].sum()
@@ -223,7 +218,6 @@ elif menu == "Estoque":
         c1.metric("Entradas (Estoque)", f"R$ {total_entradas:,.2f}")
         c2.metric("Saídas (Estoque)", f"R$ {total_saidas:,.2f}")
         c3.metric("Saldo em Estoque", f"R$ {total_entradas - total_saidas:,.2f}")
-        
         st.table(df_est[['data_lancamento', 'nome_conta', 'tipo', 'valor']])
     else: st.info("Nenhuma movimentação de estoque registrada.")
 
@@ -254,19 +248,12 @@ elif menu == "Contabilidade":
                     d_conta = df_g[df_g['nome_conta'] == nome_conta]
                     deb = d_conta[d_conta['operacao'] == 'DEBITO'].reset_index()
                     cre = d_conta[d_conta['operacao'] == 'CREDITO'].reset_index()
-                    linhas = ""
-                    for j in range(max(len(deb), len(cre))):
-                        d_v = f"{deb.loc[j, 'valor']:,.2f}" if j < len(deb) else ""
-                        d_j = f"<small style='color:gray'>({deb.loc[j, 'justificativa']})</small>" if j < len(deb) else ""
-                        c_v = f"{cre.loc[j, 'valor']:,.2f}" if j < len(cre) else ""
-                        c_j = f"<small style='color:gray'>({cre.loc[j, 'justificativa']})</small>" if j < len(cre) else ""
-                        linhas += f"<tr><td style='border-right:1px solid #999; text-align:right; font-size:12px;'>{d_v} {d_j}</td><td style='text-align:left; font-size:12px;'>{c_v} {c_j}</td></tr>"
+                    
                     html = f"""<div style="border:1px solid #ccc; padding:10px; margin-bottom:20px;">
                     <table style="width:100%"><tr><th colspan="2" style="border-bottom:1px solid #000">{nome_conta}</th></tr>
                     <tr><td style="border-right:1px solid #000; text-align:center">Débito</td><td style="text-align:center">Crédito</td></tr>
-                    {linhas}
-                    <tr><td style="border-right:1px solid #000; border-top:1px solid #000; text-align:right"><b>{deb['valor'].sum():,.2f}</b></td>
-                    <td style="border-top:1px solid #000; text-align:left"><b>{cre['valor'].sum():,.2f}</b></td></tr>
+                    <tr><td style="border-right:1px solid #000; text-align:right"><b>{deb['valor'].sum():,.2f}</b></td>
+                    <td style="text-align:left"><b>{cre['valor'].sum():,.2f}</b></td></tr>
                     </table></div>"""
                     cols[i % 2].markdown(html, unsafe_allow_html=True)
                     
