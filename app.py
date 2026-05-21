@@ -208,18 +208,25 @@ elif menu == "Contabilidade":
                     
         with tab_b:
             st.subheader("Balancete de Verificação")
-            balancete = df_f.groupby(['grupo', 'nome_conta', 'operacao'])['valor'].sum().unstack(fill_value=0)
-            if 'DEBITO' not in balancete.columns: balancete['DEBITO'] = 0.0
-            if 'CREDITO' not in balancete.columns: balancete['CREDITO'] = 0.0
+            # Agrupamento e Pivot
+            bal = df_f.groupby(['grupo', 'nome_conta', 'operacao'])['valor'].sum().unstack(fill_value=0.0)
+            if 'DEBITO' not in bal.columns: bal['DEBITO'] = 0.0
+            if 'CREDITO' not in bal.columns: bal['CREDITO'] = 0.0
             
-            # Adicionando Linha de Total
-            balancete.loc['TOTAL GERAL'] = [balancete['DEBITO'].sum(), balancete['CREDITO'].sum()]
+            # Cálculo de Saldos
+            bal['SALDO DEVEDOR'] = bal.apply(lambda x: x['DEBITO'] - x['CREDITO'] if x['DEBITO'] > x['CREDITO'] else 0.0, axis=1)
+            bal['SALDO CREDOR'] = bal.apply(lambda x: x['CREDITO'] - x['DEBITO'] if x['CREDITO'] > x['DEBITO'] else 0.0, axis=1)
             
-            st.table(balancete.style.format("R$ {:,.2f}"))
+            # Adição da linha de total
+            total_row = pd.DataFrame(bal.sum()).T
+            total_row.index = ['TOTAL GERAL']
+            bal_final = pd.concat([bal, total_row])
             
-            if balancete['DEBITO'].sum() == balancete['CREDITO'].sum():
-                st.success("Balancete Fechado! Débitos e Créditos são iguais.")
+            st.table(bal_final.style.format("R$ {:,.2f}"))
+            
+            if abs(bal['DEBITO'].sum() - bal['CREDITO'].sum()) < 0.01:
+                st.success("Balancete Fechado! Débitos e Créditos estão iguais.")
             else:
-                st.error(f"Diferença encontrada! Débito: R${balancete['DEBITO'].sum():,.2f} | Crédito: R${balancete['CREDITO'].sum():,.2f}")
+                st.error("Diferença no Balancete!")
     else:
         st.info("Sem dados.")
