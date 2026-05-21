@@ -71,6 +71,7 @@ if menu == "Lançamentos":
 
     with tab1:
         contas = get_data("contas")
+        lancamentos_full = get_data("lancamentos") # Necessário para validação de estoque
         if not contas: st.warning("Crie uma conta primeiro.")
         else:
             with st.container():
@@ -82,9 +83,23 @@ if menu == "Lançamentos":
                 op = c2.selectbox("Operação", ["DEBITO", "CREDITO"])
                 status = c2.selectbox("Status", ["ENTRADA", "PAGO", "PENDENTE", "INVESTIMENTO", "TRANSAÇÃO INTERNA"])
                 data = c2.date_input("Data do Lançamento")
+                
                 if st.button("Confirmar Lançamento", type="primary"):
                     if not just: st.error("Preencha a justificativa.")
                     else:
+                        conta_selecionada = next(c for c in contas if c['nome_conta'] == conta)
+                        # --- Validação CMV ---
+                        if conta_selecionada['grupo'] == 'CMV':
+                            df_full = pd.DataFrame(lancamentos_full) if lancamentos_full else pd.DataFrame()
+                            stock_ids = [c['id'] for c in contas if c['grupo'] == 'ATIVO CIRCULANTE ESTOQUE']
+                            if not df_full.empty:
+                                df_stock = df_full[df_full['conta_id'].isin(stock_ids)]
+                                stock_bal = df_stock[df_stock['operacao'] == 'DEBITO']['valor'].sum() - \
+                                            df_stock[df_stock['operacao'] == 'CREDITO']['valor'].sum()
+                                if float(valor) > stock_bal:
+                                    st.error(f"Erro: Valor do CMV (R${valor:.2f}) excede o saldo disponível no Estoque (R${stock_bal:.2f}).")
+                                    st.stop()
+                        
                         supabase.table("lancamentos").insert({"user_id": st.session_state.user.id, "conta_id": mapa[conta], "operacao": op, "valor": float(valor), "status_financeiro": status, "data_lancamento": str(data), "justificativa": just}).execute()
                         st.success("Lançamento efetuado!"); st.rerun()
 
