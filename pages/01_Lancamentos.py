@@ -20,7 +20,7 @@ if lancamentos and contas:
     # Merge para trazer o nome da conta junto com o lançamento
     df = df_l.merge(df_c[['id', 'nome_conta']], left_on='conta_id', right_on='id', how='left')
     
-    # Seleção das colunas que queremos exibir (incluindo 'justificativa')
+    # Seleção das colunas de exibição (incluindo justificativa)
     colunas_exibicao = ['data_lancamento', 'nome_conta', 'operacao', 'valor', 'justificativa']
     df_exibicao = df[colunas_exibicao].sort_values(by='data_lancamento', ascending=False)
     
