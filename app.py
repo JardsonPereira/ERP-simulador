@@ -232,4 +232,66 @@ elif menu == "Estoque":
         c1.metric("Entradas (Estoque)", f"R$ {total_entradas:,.2f}")
         c2.metric("Saídas (Estoque)", f"R$ {total_saidas:,.2f}")
         c3.metric("Saldo em Estoque", f"R$ {total_entradas - total_saidas:,.2f}")
-        with st
+        with st.container(border=True):
+            st.table(df_est[['data_lancamento', 'nome_conta', 'tipo', 'valor']])
+    else: st.info("Nenhuma movimentação de estoque registrada.")
+
+# --- ABA CONTABILIDADE ---
+elif menu == "Contabilidade":
+    st.header("📚 Contabilidade")
+    lancamentos = get_data("lancamentos")
+    contas = get_data("contas")
+    if lancamentos and contas:
+        df = pd.DataFrame(lancamentos).merge(pd.DataFrame(contas), left_on='conta_id', right_on='id')
+        df['data_lancamento'] = pd.to_datetime(df['data_lancamento'])
+        if 'justificativa' not in df.columns: df = df.assign(justificativa='-')
+        df['justificativa'] = df['justificativa'].fillna('-')
+        
+        c1, c2 = st.columns(2)
+        d_inicio = c1.date_input("Início", value=df['data_lancamento'].min().date())
+        d_fim = c2.date_input("Fim", value=df['data_lancamento'].max().date())
+        mask = (df['data_lancamento'].dt.date >= d_inicio) & (df['data_lancamento'].dt.date <= d_fim)
+        df_f = df.loc[mask]
+            
+        tab_r, tab_b = st.tabs(["Razonetes", "Balancete"])
+        with tab_r:
+            grupos_disponiveis = df_f['grupo'].unique()
+            grupo_selecionado = st.selectbox("Selecione o Grupo para visualizar:", grupos_disponiveis)
+            
+            st.markdown(f"### 📁 {grupo_selecionado}")
+            df_g = df_f[df_f['grupo'] == grupo_selecionado]
+            cols = st.columns(3)
+            for i, nome_conta in enumerate(df_g['nome_conta'].unique()):
+                d_conta = df_g[df_g['nome_conta'] == nome_conta]
+                deb = d_conta[d_conta['operacao'] == 'DEBITO']['valor'].sum()
+                cre = d_conta[d_conta['operacao'] == 'CREDITO']['valor'].sum()
+                saldo = abs(deb - cre)
+                
+                html = f"""
+                <div class="t-account">
+                    <div class="t-title">{nome_conta}</div>
+                    <table style="width:100%">
+                        <tr><td style="text-align:center; border-right:1px solid #ddd">Débito</td><td style="text-align:center">Crédito</td></tr>
+                        <tr>
+                            <td style="text-align:center; border-right:1px solid #ddd; color: #28a745;"><b>{deb:,.2f}</b></td>
+                            <td style="text-align:center; color: #dc3545;"><b>{cre:,.2f}</b></td>
+                        </tr>
+                    </table>
+                    <div class="t-saldo">Saldo: {saldo:,.2f}</div>
+                </div>
+                """
+                cols[i % 3].markdown(html, unsafe_allow_html=True)
+                    
+        with tab_b:
+            st.subheader("Balancete de Verificação")
+            bal = df_f.groupby(['grupo', 'nome_conta', 'operacao'])['valor'].sum().unstack(fill_value=0.0)
+            if 'DEBITO' not in bal.columns: bal['DEBITO'] = 0.0
+            if 'CREDITO' not in bal.columns: bal['CREDITO'] = 0.0
+            bal['SALDO DEVEDOR'] = bal.apply(lambda x: x['DEBITO'] - x['CREDITO'] if x['DEBITO'] > x['CREDITO'] else 0.0, axis=1)
+            bal['SALDO CREDOR'] = bal.apply(lambda x: x['CREDITO'] - x['DEBITO'] if x['CREDITO'] > x['DEBITO'] else 0.0, axis=1)
+            bal_final = bal.reset_index()
+            total_row = pd.DataFrame({'grupo': ['TOTAL GERAL'], 'nome_conta': [''], 'DEBITO': [bal['DEBITO'].sum()], 'CREDITO': [bal['CREDITO'].sum()], 'SALDO DEVEDOR': [bal['SALDO DEVEDOR'].sum()], 'SALDO CREDOR': [bal['SALDO CREDOR'].sum()]})
+            bal_final = pd.concat([bal_final, total_row], ignore_index=True)
+            st.table(bal_final.style.format({"DEBITO": "R$ {:,.2f}", "CREDITO": "R$ {:,.2f}", "SALDO DEVEDOR": "R$ {:,.2f}", "SALDO CREDOR": "R$ {:,.2f}"}))
+    else:
+        st.info("Sem dados.")
