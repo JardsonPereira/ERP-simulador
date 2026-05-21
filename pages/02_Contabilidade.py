@@ -17,16 +17,16 @@ if lancamentos and contas:
     
     # Filtro
     d_inicio = st.date_input("Início", value=df['data_lancamento'].min().date())
-    df_p = df[df['data_lancamento'].dt.date >= d_inicio]
+    mask = (df['data_lancamento'].dt.date >= d_inicio)
+    df_p = df[mask]
 
     for grupo in sorted(df_p['grupo'].unique()):
         st.markdown(f"---")
         st.subheader(f"📁 {grupo}")
         
-        # Grid de Razonetes (3 por linha para compactar)
+        # Grid de Razonetes
         contas_grupo = sorted(df_p[df_p['grupo'] == grupo]['nome_conta'].unique())
         
-        # Loop em blocos de 3 para ficar compacto
         for i in range(0, len(contas_grupo), 3):
             cols = st.columns(3)
             for j, col in enumerate(cols):
@@ -38,23 +38,23 @@ if lancamentos and contas:
                         total_deb = d_c[d_c['operacao'] == 'DEBITO']['valor'].sum()
                         total_cre = d_c[d_c['operacao'] == 'CREDITO']['valor'].sum()
                         
-                        # Layout do T (Visual)
+                        # Layout do T com D/C e Cores
                         st.markdown(f"""
                             <div style="border: 1px solid #ddd; padding: 10px; border-radius: 5px; text-align: center;">
                                 <b>{conta}</b>
                                 <div style="border-top: 2px solid black; margin-top: 5px;"></div>
                                 <div style="display: flex; border-left: 2px solid black; height: 60px;">
-                                    <div style="flex: 1; text-align: left; padding-left: 5px; font-size: 0.85em;">
-                                        R$ {total_deb:,.2f}
+                                    <div style="flex: 1; text-align: left; padding-left: 5px; font-size: 0.85em; color: #2e7d32;">
+                                        <b>D</b>: R$ {total_deb:,.2f}
                                     </div>
-                                    <div style="flex: 1; text-align: right; padding-right: 5px; font-size: 0.85em;">
-                                        R$ {total_cre:,.2f}
+                                    <div style="flex: 1; text-align: right; padding-right: 5px; font-size: 0.85em; color: #c62828;">
+                                        <b>C</b>: R$ {total_cre:,.2f}
                                     </div>
                                 </div>
                             </div>
                         """, unsafe_allow_html=True)
 
-    # Balancete (com o erro do .map corrigido)
+    # Balancete
     st.markdown("## Balancete de Verificação")
     pivot = df_p.pivot_table(index='nome_conta', columns='operacao', values='valor', aggfunc='sum', fill_value=0)
     if 'DEBITO' not in pivot.columns: pivot['DEBITO'] = 0
