@@ -181,7 +181,7 @@ elif menu == "Fluxo de Caixa":
         
         st.table(df_fc[['data_lancamento', 'nome_conta', 'operacao', 'valor', 'status_financeiro']])
         
-        st.subheader("Situação do Passivo e Liquidez")
+        st.subheader("Análise de Liquidez e Passivo")
         df_passivo = df[df['grupo'].isin(['PASSIVO CIRCULANTE', 'PASSIVO NÃO CIRCULANTE'])]
         df_passivo['val_contabil'] = df_passivo.apply(lambda x: x['valor'] if x['operacao'] == 'CREDITO' else -x['valor'], axis=1)
         
@@ -192,11 +192,12 @@ elif menu == "Fluxo de Caixa":
         col_res.table(df_passivo.groupby('grupo')['val_contabil'].sum().reset_index())
         col_res.metric("Total Geral Passivo", f"R$ {passivo_total:,.2f}")
         
-        liq_circ_perc = (saldo_final / passivo_circ * 100) if passivo_circ > 0 else 0
-        liq_total_perc = (saldo_final / passivo_total * 100) if passivo_total > 0 else 0
+        # Fórmulas ajustadas (Resultado / Valor / 100)
+        liq_circ_val = (saldo_final / passivo_circ / 100) if passivo_circ > 0 else 0
+        liq_total_val = (saldo_final / passivo_total / 100) if passivo_total > 0 else 0
         
-        col_liq.metric("Liquidez (Saldo Final / Passivo Circ.)", f"{liq_circ_perc:.2f}%")
-        col_liq.metric("Liquidez (Saldo Final / Passivo Total)", f"{liq_total_perc:.2f}%")
+        col_liq.metric("Índice (Saldo Final / Passivo Circ.)", f"{liq_circ_val:.4f}")
+        col_liq.metric("Índice (Saldo Final / Passivo Total)", f"{liq_total_val:.4f}")
 
     else: st.info("Sem dados.")
 
