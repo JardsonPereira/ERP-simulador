@@ -92,8 +92,7 @@ if menu == "Lançamentos":
                 if not justificativa:
                     st.error("Por favor, preencha a justificativa.")
                 else:
-                    # Garantindo que o dicionário está devidamente fechado
-                    dados_insercao = {
+                    supabase.table("lancamentos").insert({
                         "user_id": st.session_state.user.id, 
                         "conta_id": mapa[conta],
                         "operacao": op, 
@@ -101,8 +100,7 @@ if menu == "Lançamentos":
                         "status_financeiro": status, 
                         "data_lancamento": str(data),
                         "justificativa": justificativa
-                    }
-                    supabase.table("lancamentos").insert(dados_insercao).execute()
+                    }).execute()
                     st.success("Lançamento efetuado com sucesso!")
                     st.rerun()
 
@@ -115,10 +113,6 @@ if menu == "Lançamentos":
         contas = get_data("contas")
         
         if lancamentos and contas:
-            df_l = pd.DataFrame(lancamentos)
-            df_c = pd.DataFrame(contas)
-            df_view = df_l.merge(df_c, left_on='conta_id', right_on='id', suffixes=('_lanc', '_conta'))
-            
             st.divider()
             col_reset1, col_reset2 = st.columns([3, 1])
             col_reset1.warning("⚠️ **Zona de Perigo:** Apagar todos os lançamentos é uma ação irreversível.")
@@ -128,7 +122,16 @@ if menu == "Lançamentos":
                 st.rerun()
             st.divider()
 
-            opcoes_lancamentos = {f"{row['data_lancamento']} | {row['nome_conta']} | {row['operacao']} | R$ {row['valor']:.2f} | {row.get('justificativa', '-')}": row['id_lanc'] for index, row in df_view.iterrows()}
+            # Mapeamento seguro (sem usar o Pandas) para evitar o erro APIError de numpy.int64
+            mapa_contas_id_nome = {c['id']: c['nome_conta'] for c in contas}
+            mapa_contas_nome_id = {c['nome_conta']: c['id'] for c in contas}
+            
+            opcoes_lancamentos = {}
+            for l in lancamentos:
+                nome_conta = mapa_contas_id_nome.get(l['conta_id'], 'Conta Desconhecida')
+                just = l.get('justificativa', '-')
+                label = f"{l['data_lancamento']} | {nome_conta} | {l['operacao']} | R$ {l['valor']:.2f} | {just}"
+                opcoes_lancamentos[label] = l['id']
             
             lancamento_selecionado = st.selectbox("Selecione um lançamento para Editar/Excluir:", list(opcoes_lancamentos.keys()))
             id_selecionado = opcoes_lancamentos[lancamento_selecionado]
@@ -137,10 +140,8 @@ if menu == "Lançamentos":
             
             with st.form("form_editar_lancamento"):
                 st.write("**Editar Lançamento Selecionado**")
-                mapa_inverso = {c['id']: c['nome_conta'] for c in contas}
-                mapa_contas = {c['nome_conta']: c['id'] for c in contas}
                 
-                nova_conta_nome = st.selectbox("Conta", list(mapa_contas.keys()), index=list(mapa_contas.values()).index(lancamento_atual['conta_id']))
+                nova_conta_nome = st.selectbox("Conta", list(mapa_contas_nome_id.keys()), index=list(mapa_contas_nome_id.values()).index(lancamento_atual['conta_id']))
                 nova_operacao = st.selectbox("Operação", ["DEBITO", "CREDITO"], index=["DEBITO", "CREDITO"].index(lancamento_atual['operacao']))
                 novo_valor = st.number_input("Valor (R$)", min_value=0.0, value=float(lancamento_atual['valor']), format="%.2f")
                 nova_justificativa = st.text_input("Justificativa", value=lancamento_atual.get('justificativa', ''))
@@ -151,7 +152,7 @@ if menu == "Lançamentos":
                 
                 if btn_salvar:
                     supabase.table("lancamentos").update({
-                        "conta_id": mapa_contas[nova_conta_nome],
+                        "conta_id": mapa_contas_nome_id[nova_conta_nome],
                         "operacao": nova_operacao,
                         "valor": novo_valor,
                         "justificativa": nova_justificativa
@@ -208,7 +209,6 @@ elif menu == "Contabilidade":
                 linhas_html = ""
                 
                 for i in range(max_linhas):
-                    # Formatar Débito
                     if i < len(debitos):
                         val_d = f"{debitos.loc[i, 'valor']:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
                         just_d = debitos.loc[i, 'justificativa'][:15] + "..." if len(debitos.loc[i, 'justificativa']) > 15 else debitos.loc[i, 'justificativa']
@@ -216,7 +216,6 @@ elif menu == "Contabilidade":
                     else:
                         texto_d = ""
                         
-                    # Formatar Crédito
                     if i < len(creditos):
                         val_c = f"{creditos.loc[i, 'valor']:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
                         just_c = creditos.loc[i, 'justificativa'][:15] + "..." if len(creditos.loc[i, 'justificativa']) > 15 else creditos.loc[i, 'justificativa']
@@ -224,10 +223,8 @@ elif menu == "Contabilidade":
                     else:
                         texto_c = ""
                     
-                    # Constrói a linha minimamente indentada para não quebrar no Markdown
                     linhas_html += f"<tr><td style='border-right: 1px solid #999; padding: 2px 10px; text-align: right; width: 50%;'>{texto_d}</td><td style='padding: 2px 10px; text-align: left; width: 50%;'>{texto_c}</td></tr>"
 
-                # Define o HTML principal do Razonete sem espaçamento inicial (evita bug de raw HTML no Streamlit)
                 html_razonete = f"""<div style="display: flex; justify-content: center; margin-bottom: 40px;">
 <table style="width: 90%; border-collapse: collapse; font-family: sans-serif; background-color: transparent;">
 <tr>
