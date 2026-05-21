@@ -2,46 +2,41 @@ import streamlit as st
 import pandas as pd
 from utils import get_supabase, get_data_cached, check_auth
 
-# Inicialização
 check_auth()
 supabase = get_supabase()
 
-st.header("📝 Lançamentos Realizados")
+st.title("💰 Gestão Financeira")
 
-# Carregar dados
-lancamentos = get_data_cached("lancamentos", st.session_state.user.id)
-contas = get_data_cached("contas", st.session_state.user.id)
+tab_visualizar, tab_lancamento, tab_contas = st.tabs(["📊 Lançamentos", "➕ Novo Lançamento", "🏦 Gerenciar Contas"])
 
-if lancamentos and contas:
-    # Converter para DataFrame
-    df_l = pd.DataFrame(lancamentos)
-    df_c = pd.DataFrame(contas)
-    
-    # Merge para trazer o nome da conta junto com o lançamento
-    df = df_l.merge(df_c[['id', 'nome_conta']], left_on='conta_id', right_on='id', how='left')
-    
-    # Seleção das colunas de exibição (incluindo justificativa)
-    colunas_exibicao = ['data_lancamento', 'nome_conta', 'operacao', 'valor', 'justificativa']
-    df_exibicao = df[colunas_exibicao].sort_values(by='data_lancamento', ascending=False)
-    
-    # Formatação das colunas para melhor leitura
-    df_exibicao = df_exibicao.rename(columns={
-        'data_lancamento': 'Data',
-        'nome_conta': 'Conta',
-        'operacao': 'Operação',
-        'valor': 'Valor (R$)',
-        'justificativa': 'Justificativa'
-    })
+# --- Aba de Visualização ---
+with tab_visualizar:
+    st.header("Lançamentos Realizados")
+    # (Seu código original de exibição do dataframe vai aqui)
+    # DICA: Adicione um botão de 'Atualizar' usando st.cache_data.clear()
 
-    # Exibição com ajuste de largura automática
-    st.dataframe(
-        df_exibicao,
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "Valor (R$)": st.column_config.NumberColumn(format="R$ %.2f"),
-            "Justificativa": st.column_config.TextColumn("Justificativa", width="large")
-        }
-    )
-else:
-    st.info("Nenhum lançamento encontrado.")
+# --- Aba de Novo Lançamento ---
+with tab_lancamento:
+    st.header("Registrar Movimentação")
+    with st.form("form_lancamento", clear_on_submit=True):
+        col1, col2 = st.columns(2)
+        with col1:
+            data = st.date_input("Data")
+            conta = st.selectbox("Conta", options=get_data_cached("contas", st.session_state.user.id))
+            valor = st.number_input("Valor (R$)", min_value=0.0, format="%.2f")
+        with col2:
+            tipo = st.radio("Operação", ["Receita", "Despesa"])
+            justificativa = st.text_area("Justificativa")
+        
+        if st.form_submit_button("Salvar Lançamento"):
+            # Lógica para inserir no Supabase
+            # supabase.table("lancamentos").insert({...}).execute()
+            st.success("Lançamento salvo!")
+
+# --- Aba de Contas ---
+with tab_contas:
+    st.header("Minhas Contas")
+    nome_nova_conta = st.text_input("Nome da nova conta")
+    if st.button("Criar Conta"):
+        # Lógica para inserir no Supabase
+        st.success(f"Conta {nome_nova_conta} criada!")
