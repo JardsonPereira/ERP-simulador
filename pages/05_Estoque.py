@@ -1,4 +1,19 @@
 import streamlit as st, pandas as pd, sys, os
+
+# 1. Configurar o caminho para encontrar o utils.py
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+# 2. Importar as funções
+from utils import get_supabase, get_data_cached, check_auth, inject_css
+
+# 3. Executar configurações iniciais
+check_auth()      # Verifica o login
+inject_css()      # Aplica o estilo
+supabase = get_supabase() # <--- ISTO CRIA A VARIÁVEL
+
+# A partir daqui, pode usar 'supabase' livremente no seu código
+# Exemplo: lancamentos = supabase.table("lancamentos").select("*").execute()
+import streamlit as st, pandas as pd, sys, os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from utils import get_data_cached, check_auth, inject_css
 
