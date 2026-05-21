@@ -1,48 +1,24 @@
 import streamlit as st
+from supabase import create_client
 from erp_functions import (
     mostrar_razonetes, mostrar_balancete, mostrar_dre, 
     mostrar_fluxo_caixa, mostrar_vendas_erp, mostrar_gestao
 )
-from supabase import create_client
 
-# --- CONFIGURAÇÃO ---
-st.set_page_config(page_title="ERP Didático Integrado", layout="wide")
+# Configuração
+st.set_page_config(layout="wide")
+supabase = create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
 
-# Inicialização Supabase
-try:
-    url = st.secrets["SUPABASE_URL"]
-    key = st.secrets["SUPABASE_KEY"]
-    supabase = create_client(url, key)
-except Exception as e:
-    st.error("Erro na configuração do Supabase. Verifique suas Secrets.")
-    st.stop()
-
-# --- ESTADOS DO SISTEMA ---
-if 'menu_opcao' not in st.session_state:
-    st.session_state.menu_opcao = "🛒 ERP/Vendas"
-
-# --- NAVEGAÇÃO ---
-st.sidebar.title("🏢 Menu ERP")
-opcoes_menu = [
+# Menu
+menu = st.sidebar.radio("Navegação", [
     "🛒 ERP/Vendas", "📊 Razonetes", "🧾 Balancete", 
     "📈 DRE", "💸 Fluxo de Caixa", "⚙️ Gestão"
-]
-menu_selecionado = st.sidebar.radio("Escolha o Módulo:", opcoes_menu)
-st.session_state.menu_opcao = menu_selecionado
+])
 
-st.divider()
-
-# --- ROTEAMENTO ---
-# Aqui passamos a instância do supabase para as funções
-if st.session_state.menu_opcao == "🛒 ERP/Vendas":
-    mostrar_vendas_erp(supabase)
-elif st.session_state.menu_opcao == "📊 Razonetes":
-    mostrar_razonetes(supabase)
-elif st.session_state.menu_opcao == "🧾 Balancete":
-    mostrar_balancete(supabase)
-elif st.session_state.menu_opcao == "📈 DRE":
-    mostrar_dre(supabase)
-elif st.session_state.menu_opcao == "💸 Fluxo de Caixa":
-    mostrar_fluxo_caixa(supabase)
-elif st.session_state.menu_opcao == "⚙️ Gestão":
-    mostrar_gestao(supabase)
+# Roteamento Padronizado (todas recebem apenas 'supabase')
+if menu == "🛒 ERP/Vendas": mostrar_vendas_erp(supabase)
+elif menu == "📊 Razonetes": mostrar_razonetes(supabase)
+elif menu == "🧾 Balancete": mostrar_balancete(supabase)
+elif menu == "📈 DRE": mostrar_dre(supabase)
+elif menu == "💸 Fluxo de Caixa": mostrar_fluxo_caixa(supabase)
+elif menu == "⚙️ Gestão": mostrar_gestao(supabase)
