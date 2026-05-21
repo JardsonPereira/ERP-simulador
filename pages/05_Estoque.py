@@ -3,7 +3,6 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from utils import get_data_cached, check_auth, inject_css
 
 check_auth(); inject_css()
-supabase = get_supabase()
 st.header("📦 Movimentação de Estoque")
 lancamentos = get_data_cached("lancamentos", st.session_state.user.id)
 contas = get_data_cached("contas", st.session_state.user.id)
