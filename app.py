@@ -4,17 +4,17 @@ import os
 from supabase import create_client
 from dotenv import load_dotenv
 
-# Configuração
+# Configuração de ambiente
 load_dotenv()
-url = os.getenv("SUPABASE_URL")
-key = os.getenv("SUPABASE_KEY")
+url = os.environ.get("SUPABASE_URL")
+key = os.environ.get("SUPABASE_KEY")
 supabase = create_client(url, key)
 
 st.set_page_config(page_title="ERP Didático", layout="wide")
 
 # --- AUTENTICAÇÃO ---
 if 'user' not in st.session_state:
-    st.title("Login / Cadastro")
+    st.title("Login / Cadastro - ERP Didático")
     email = st.text_input("Email")
     password = st.text_input("Senha", type="password")
     username = st.text_input("Nome de Usuário")
@@ -23,8 +23,11 @@ if 'user' not in st.session_state:
     if col1.button("Cadastrar"):
         res = supabase.auth.sign_up({"email": email, "password": password})
         if res.user:
-            supabase.table("profiles").insert({"id": res.user.id, "username": username}).execute()
-            st.success("Conta criada! Faça login.")
+            try:
+                supabase.table("profiles").insert({"id": res.user.id, "username": username}).execute()
+                st.success("Conta criada! Agora faça login.")
+            except Exception as e:
+                st.error(f"Erro ao salvar perfil: {e}")
             
     if col2.button("Entrar"):
         try:
@@ -32,11 +35,11 @@ if 'user' not in st.session_state:
             st.session_state.user = res.user
             st.rerun()
         except Exception as e:
-            st.error("Erro no login.")
+            st.error(f"Falha no login: {e}")
     st.stop()
 
 # --- INTERFACE PRINCIPAL ---
-st.sidebar.title(f"ERP - {st.session_state.user.email}")
+st.sidebar.title(f"ERP: {st.session_state.user.email}")
 menu = st.sidebar.radio("Navegação", ["Contabilidade", "Lançamentos", "Estoque", "DRE", "Fluxo de Caixa"])
 
 def get_data(table):
@@ -48,6 +51,7 @@ if menu == "Lançamentos":
     tab1, tab2 = st.tabs(["Realizar Lançamento", "Nova Conta"])
     
     with tab2:
+        st.subheader("Cadastrar Conta")
         nome = st.text_input("Nome da Conta")
         grupo = st.selectbox("Grupo", ["ATIVO CIRCULANTE", "ATIVO NÃO CIRCULANTE", "PASSIVO CIRCULANTE", "PASSIVO NÃO CIRCULANTE", "PL", "RECEITAS", "DESPESAS", "CMV"])
         if st.button("Salvar Conta"):
@@ -58,7 +62,7 @@ if menu == "Lançamentos":
     with tab1:
         contas = get_data("contas")
         if not contas:
-            st.warning("Crie uma conta primeiro.")
+            st.warning("Crie uma conta primeiro na aba 'Nova Conta'.")
         else:
             mapa = {c['nome_conta']: c['id'] for c in contas}
             c1, c2 = st.columns(2)
@@ -77,7 +81,7 @@ if menu == "Lançamentos":
                 }).execute()
                 st.success("Lançamento efetuado!")
 
-# --- ABA CONTABILIDADE (RAZONETES/BALANCETE) ---
+# --- ABA CONTABILIDADE ---
 elif menu == "Contabilidade":
     st.header("Contabilidade: Razonetes e Balancete")
     lancamentos = get_data("lancamentos")
@@ -93,21 +97,26 @@ elif menu == "Contabilidade":
             with st.expander(f"Razonete: {nome_conta}"):
                 st.table(df[df['nome_conta'] == nome_conta][['operacao', 'valor', 'data_lancamento']])
 
-        # Balancete
+        # Balancete (Corrigido para evitar AttributeError)
         st.subheader("Balancete de Verificação")
-        balancete = df.groupby(['grupo', 'nome_conta', 'operacao'])['valor'].sum().unstack(fill_value=0)
-        balancete['Saldo'] = balancete.get('DEBITO', 0) - balancete.get('CREDITO', 0)
-        st.table(balancete)
+        df_balancete = df.groupby(['grupo', 'nome_conta', 'operacao'])['valor'].sum().unstack(fill_value=0.0)
         
-        # Verificação de Equilíbrio
-        total_d = balancete.get('DEBITO', 0).sum()
-        total_c = balancete.get('CREDITO', 0).sum()
+        # Forçar criação das colunas caso não existam
+        if 'DEBITO' not in df_balancete.columns: df_balancete['DEBITO'] = 0.0
+        if 'CREDITO' not in df_balancete.columns: df_balancete['CREDITO'] = 0.0
+        
+        df_balancete['Saldo'] = df_balancete['DEBITO'] - df_balancete['CREDITO']
+        st.table(df_balancete)
+        
+        # Verificação
+        total_d = df_balancete['DEBITO'].sum()
+        total_c = df_balancete['CREDITO'].sum()
         if abs(total_d - total_c) < 0.01:
             st.success(f"Equilibrado! Débitos: R${total_d:.2f} | Créditos: R${total_c:.2f}")
         else:
             st.error(f"Desequilibrado! Débitos: R${total_d:.2f} | Créditos: R${total_c:.2f}")
 
-# --- ESTRUTURA ABAS RESTANTES ---
-elif menu in ["Estoque", "DRE", "Fluxo de Caixa"]:
+# --- ESTRUTURA PARA MÓDULOS FUTUROS ---
+else:
     st.header(f"Módulo: {menu}")
-    st.info("Funcionalidade em desenvolvimento. Utilize a base de dados acima para construir os relatórios.")
+    st.info("Em desenvolvimento...")
