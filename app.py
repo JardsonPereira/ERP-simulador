@@ -92,10 +92,197 @@ if menu == "Lançamentos":
                 if not justificativa:
                     st.error("Por favor, preencha a justificativa.")
                 else:
-                    supabase.table("lancamentos").insert({
+                    # Garantindo que o dicionário está devidamente fechado
+                    dados_insercao = {
                         "user_id": st.session_state.user.id, 
                         "conta_id": mapa[conta],
                         "operacao": op, 
                         "valor": valor, 
                         "status_financeiro": status, 
-                        "data_lancamento": str
+                        "data_lancamento": str(data),
+                        "justificativa": justificativa
+                    }
+                    supabase.table("lancamentos").insert(dados_insercao).execute()
+                    st.success("Lançamento efetuado com sucesso!")
+                    st.rerun()
+
+    # ----------------------------------------
+    # TAB 3: GERENCIAR (EDITAR, EXCLUIR, RESETAR)
+    # ----------------------------------------
+    with tab3:
+        st.subheader("Gerenciar Lançamentos")
+        lancamentos = get_data("lancamentos")
+        contas = get_data("contas")
+        
+        if lancamentos and contas:
+            df_l = pd.DataFrame(lancamentos)
+            df_c = pd.DataFrame(contas)
+            df_view = df_l.merge(df_c, left_on='conta_id', right_on='id', suffixes=('_lanc', '_conta'))
+            
+            st.divider()
+            col_reset1, col_reset2 = st.columns([3, 1])
+            col_reset1.warning("⚠️ **Zona de Perigo:** Apagar todos os lançamentos é uma ação irreversível.")
+            if col_reset2.button("Resetar Todos os Lançamentos", type="primary"):
+                supabase.table("lancamentos").delete().eq("user_id", st.session_state.user.id).execute()
+                st.success("Todos os lançamentos foram apagados!")
+                st.rerun()
+            st.divider()
+
+            opcoes_lancamentos = {f"{row['data_lancamento']} | {row['nome_conta']} | {row['operacao']} | R$ {row['valor']:.2f} | {row.get('justificativa', '-')}": row['id_lanc'] for index, row in df_view.iterrows()}
+            
+            lancamento_selecionado = st.selectbox("Selecione um lançamento para Editar/Excluir:", list(opcoes_lancamentos.keys()))
+            id_selecionado = opcoes_lancamentos[lancamento_selecionado]
+            
+            lancamento_atual = next(item for item in lancamentos if item["id"] == id_selecionado)
+            
+            with st.form("form_editar_lancamento"):
+                st.write("**Editar Lançamento Selecionado**")
+                mapa_inverso = {c['id']: c['nome_conta'] for c in contas}
+                mapa_contas = {c['nome_conta']: c['id'] for c in contas}
+                
+                nova_conta_nome = st.selectbox("Conta", list(mapa_contas.keys()), index=list(mapa_contas.values()).index(lancamento_atual['conta_id']))
+                nova_operacao = st.selectbox("Operação", ["DEBITO", "CREDITO"], index=["DEBITO", "CREDITO"].index(lancamento_atual['operacao']))
+                novo_valor = st.number_input("Valor (R$)", min_value=0.0, value=float(lancamento_atual['valor']), format="%.2f")
+                nova_justificativa = st.text_input("Justificativa", value=lancamento_atual.get('justificativa', ''))
+                
+                col_btn1, col_btn2 = st.columns(2)
+                btn_salvar = col_btn1.form_submit_button("Atualizar Lançamento")
+                btn_excluir = col_btn2.form_submit_button("Excluir Lançamento")
+                
+                if btn_salvar:
+                    supabase.table("lancamentos").update({
+                        "conta_id": mapa_contas[nova_conta_nome],
+                        "operacao": nova_operacao,
+                        "valor": novo_valor,
+                        "justificativa": nova_justificativa
+                    }).eq("id", id_selecionado).execute()
+                    st.success("Lançamento atualizado!")
+                    st.rerun()
+                    
+                if btn_excluir:
+                    supabase.table("lancamentos").delete().eq("id", id_selecionado).execute()
+                    st.success("Lançamento excluído!")
+                    st.rerun()
+        else:
+            st.info("Nenhum lançamento encontrado para gerenciar.")
+
+# --- ABA CONTABILIDADE (RAZONETES E BALANCETE) ---
+elif menu == "Contabilidade":
+    st.header("Contabilidade")
+    
+    lancamentos = get_data("lancamentos")
+    contas = get_data("contas")
+    
+    if lancamentos and contas:
+        df_l = pd.DataFrame(lancamentos)
+        df_c = pd.DataFrame(contas)
+        df = df_l.merge(df_c, left_on='conta_id', right_on='id')
+        
+        if 'justificativa' not in df.columns:
+            df['justificativa'] = "-"
+        else:
+            df['justificativa'] = df['justificativa'].fillna("-")
+            
+        btn_razonetes, btn_balancete = st.tabs(["Ver Razonetes (Gráfico T)", "Ver Balancete de Verificação"])
+        
+        # ----------------------------------------
+        # VISUALIZAÇÃO DOS RAZONETES EM FORMATO 'T'
+        # ----------------------------------------
+        with btn_razonetes:
+            st.subheader("Razonetes (Contas em 'T')")
+            
+            cols = st.columns(2)
+            col_idx = 0
+            
+            for nome_conta in df['nome_conta'].unique():
+                dados_conta = df[df['nome_conta'] == nome_conta]
+                
+                debitos = dados_conta[dados_conta['operacao'] == 'DEBITO'].reset_index(drop=True)
+                creditos = dados_conta[dados_conta['operacao'] == 'CREDITO'].reset_index(drop=True)
+                
+                total_debito = debitos['valor'].sum()
+                total_credito = creditos['valor'].sum()
+                saldo = total_debito - total_credito
+                
+                max_linhas = max(len(debitos), len(creditos))
+                linhas_html = ""
+                
+                for i in range(max_linhas):
+                    # Formatar Débito
+                    if i < len(debitos):
+                        val_d = f"{debitos.loc[i, 'valor']:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                        just_d = debitos.loc[i, 'justificativa'][:15] + "..." if len(debitos.loc[i, 'justificativa']) > 15 else debitos.loc[i, 'justificativa']
+                        texto_d = f"<span style='color:#a32626; font-size:11px; margin-right:15px;'>{just_d}</span> {val_d}"
+                    else:
+                        texto_d = ""
+                        
+                    # Formatar Crédito
+                    if i < len(creditos):
+                        val_c = f"{creditos.loc[i, 'valor']:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                        just_c = creditos.loc[i, 'justificativa'][:15] + "..." if len(creditos.loc[i, 'justificativa']) > 15 else creditos.loc[i, 'justificativa']
+                        texto_c = f"{val_c} <span style='color:#a32626; font-size:11px; margin-left:15px;'>{just_c}</span>"
+                    else:
+                        texto_c = ""
+                    
+                    # Constrói a linha minimamente indentada para não quebrar no Markdown
+                    linhas_html += f"<tr><td style='border-right: 1px solid #999; padding: 2px 10px; text-align: right; width: 50%;'>{texto_d}</td><td style='padding: 2px 10px; text-align: left; width: 50%;'>{texto_c}</td></tr>"
+
+                # Define o HTML principal do Razonete sem espaçamento inicial (evita bug de raw HTML no Streamlit)
+                html_razonete = f"""<div style="display: flex; justify-content: center; margin-bottom: 40px;">
+<table style="width: 90%; border-collapse: collapse; font-family: sans-serif; background-color: transparent;">
+<tr>
+<th colspan="2" style="border-bottom: 1px solid #777; padding-bottom: 5px; font-size: 16px; font-weight: normal; text-align: center; color: var(--text-color);">{nome_conta}</th>
+</tr>
+<tr>
+<td style="border-right: 1px solid #999; color: #2e8b57; padding: 2px; text-align: center; font-size: 13px;">debito</td>
+<td style="color: #a32626; padding: 2px; text-align: center; font-size: 13px;">credito</td>
+</tr>
+{linhas_html}
+<tr>
+<td style="border-right: 1px solid #999; border-top: 1px solid #ccc; padding: 5px 10px; text-align: right; color: #2e8b57;">{total_debito:,.2f}</td>
+<td style="border-top: 1px solid #ccc; padding: 5px 10px; text-align: left; color: #2e8b57;">{total_credito:,.2f}</td>
+</tr>
+<tr>
+<td style="border-right: 1px solid #999; padding: 5px 10px; text-align: center; font-weight: bold; color: #2e8b57;">{f"{saldo:,.2f}" if saldo > 0 else ""}</td>
+<td style="padding: 5px 10px; text-align: center; font-weight: bold; color: #2e8b57;">{f"{abs(saldo):,.2f}" if saldo < 0 else ""}</td>
+</tr>
+<tr>
+<td style="border-right: 1px solid #999; text-align: center; color: #2e8b57; font-size:12px;">{'0' if saldo == 0 else ''}</td>
+<td style="text-align: center; color: #2e8b57; font-size:12px;">{'0' if saldo == 0 else ''}</td>
+</tr>
+</table>
+</div>"""
+                
+                with cols[col_idx % 2]:
+                    st.markdown(html_razonete, unsafe_allow_html=True)
+                col_idx += 1
+
+        # ----------------------------------------
+        # VISUALIZAÇÃO DO BALANCETE
+        # ----------------------------------------
+        with btn_balancete:
+            st.subheader("Balancete de Verificação")
+            balancete = df.groupby(['grupo', 'nome_conta', 'operacao'])['valor'].sum().unstack(fill_value=0.0)
+            
+            if 'DEBITO' not in balancete.columns: balancete['DEBITO'] = 0.0
+            if 'CREDITO' not in balancete.columns: balancete['CREDITO'] = 0.0
+            
+            balancete['Saldo'] = balancete['DEBITO'] - balancete['CREDITO']
+            st.table(balancete)
+            
+            total_d = balancete['DEBITO'].sum()
+            total_c = balancete['CREDITO'].sum()
+            
+            st.divider()
+            if abs(total_d - total_c) < 0.01:
+                st.success(f"✅ Sistema Equilibrado! Débitos: R$ {total_d:,.2f} | Créditos: R$ {total_c:,.2f}")
+            else:
+                st.error(f"❌ Sistema DESEQUILIBRADO! Débitos: R$ {total_d:,.2f} | Créditos: R$ {total_c:,.2f}")
+
+    else:
+        st.info("Não há lançamentos ou contas cadastradas para exibir a contabilidade.")
+
+# --- DEMAIS MÓDULOS ---
+else:
+    st.header(f"Módulo: {menu}")
+    st.info("Funcionalidade em desenvolvimento.")
