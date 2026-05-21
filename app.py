@@ -25,18 +25,37 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- FUNÇÃO DE PDF ---
-def gerar_pdf(titulo, df):
+# --- FUNÇÃO DE PDF AJUSTADA ---
+def gerar_pdf(titulo_secao, df):
     pdf = FPDF()
     pdf.add_page()
+    # Cabeçalho Fixo [cite: 1]
     pdf.set_font("Arial", 'B', 16)
-    pdf.cell(0, 10, titulo, ln=True, align='C')
+    pdf.cell(0, 10, "RELATÓRIO CONTÁBIL CONSOLIDADO", ln=True, align='C')
+    
+    # Metadados [cite: 2, 3]
     pdf.set_font("Arial", size=10)
-    pdf.ln(10)
-    # Tabela simples no PDF
-    for index, row in df.iterrows():
-        line = " | ".join([str(val) for val in row.values])
-        pdf.cell(0, 10, line, ln=True)
+    pdf.cell(0, 8, f"Usuário: {st.session_state.user.email}", ln=True)
+    pdf.cell(0, 8, f"Gerado em: {pd.Timestamp.now().strftime('%d/%m/%Y %H:%M')}", ln=True)
+    pdf.ln(5)
+    
+    # Título da Seção [cite: 4, 7, 9, 12]
+    pdf.set_font("Arial", 'B', 12)
+    pdf.cell(0, 10, titulo_secao, ln=True)
+    
+    # Conteúdo da Tabela
+    pdf.set_font("Arial", size=10)
+    # Cabeçalho da tabela
+    col_width = 190 / len(df.columns)
+    for col in df.columns:
+        pdf.cell(col_width, 10, str(col), border=1, align='C')
+    pdf.ln()
+    # Linhas
+    for _, row in df.iterrows():
+        for val in row:
+            pdf.cell(col_width, 10, str(val), border=1)
+        pdf.ln()
+        
     return pdf.output(dest='S').encode('latin-1')
 
 # --- AUTENTICAÇÃO ---
@@ -101,7 +120,6 @@ if menu == "Lançamentos":
                 
                 if st.button("Confirmar Lançamento", type="primary"):
                     conta_selecionada = next(c for c in contas if c['nome_conta'] == conta)
-                    # --- LÓGICA DE SEGURANÇA CMV ---
                     if conta_selecionada['grupo'] == 'CMV':
                         df_full = pd.DataFrame(lancamentos_full) if lancamentos_full else pd.DataFrame()
                         stock_ids = [c['id'] for c in contas if c['grupo'] == 'ATIVO CIRCULANTE ESTOQUE']
@@ -175,9 +193,9 @@ elif menu == "DRE":
         lucro_liquido = lucro_bruto - despesas - encargos
         
         dre_data = pd.DataFrame({"Descrição": ["(+) Receita Bruta", "(-) CMV", "(=) Lucro Bruto", "(-) Despesas Operacionais", "(-) Encargos Financeiros", "(=) Lucro/Prejuízo Líquido"],
-                    "Valor": [receita_bruta, cmv, lucro_bruto, despesas, encargos, lucro_liquido]})
+                                "Valor": [receita_bruta, cmv, lucro_bruto, despesas, encargos, lucro_liquido]})
         st.table(dre_data.set_index("Descrição").style.format("R$ {:,.2f}"))
-        if st.download_button("Baixar DRE PDF", data=gerar_pdf("DRE", dre_data), file_name="dre.pdf"): st.success("Download iniciado!")
+        if st.download_button("Baixar DRE PDF", data=gerar_pdf("2. DEMONSTRAÇÃO DO RESULTADO (DRE)", dre_data), file_name="dre.pdf"): st.success("Download iniciado!")
     else: st.info("Dados insuficientes.")
 
 # --- ABA FLUXO DE CAIXA ---
@@ -197,7 +215,6 @@ elif menu == "Fluxo de Caixa":
         mask_periodo = (df['data_lancamento'].dt.date >= d_inicio) & (df['data_lancamento'].dt.date <= d_fim)
         mask_anterior = (df['data_lancamento'].dt.date < d_inicio)
         
-        # Saldo Inicial Acumulado
         df_anterior = df[mask_anterior].copy()
         df_anterior['fluxo_ant'] = df_anterior.apply(lambda x: x['valor'] if x['status_financeiro'] == 'ENTRADA' else (-x['valor'] if x['status_financeiro'] == 'PAGO' else 0), axis=1)
         saldo_inicial = df_anterior['fluxo_ant'].sum()
@@ -217,7 +234,6 @@ elif menu == "Fluxo de Caixa":
         
         st.table(df_fc[['data_lancamento', 'nome_conta', 'operacao', 'valor', 'status_financeiro']])
         
-        # Análise Liquidez
         df_passivo = df[df['grupo'].isin(['PASSIVO CIRCULANTE', 'PASSIVO NÃO CIRCULANTE'])]
         df_passivo['val_contabil'] = df_passivo.apply(lambda x: x['valor'] if x['operacao'] == 'CREDITO' else -x['valor'], axis=1)
         passivo_circ = df[df['grupo'] == 'PASSIVO CIRCULANTE']['valor'].sum()
@@ -231,7 +247,7 @@ elif menu == "Fluxo de Caixa":
             st.metric("Liquidez (Saldo / Passivo Circ.)", f"{((saldo_final / passivo_circ * 100) if passivo_circ > 0 else 0):.2f}%")
             st.metric("Liquidez (Saldo / Passivo Total)", f"{((saldo_final / passivo_total * 100) if passivo_total > 0 else 0):.2f}%")
         
-        if st.download_button("Baixar Fluxo de Caixa PDF", data=gerar_pdf("Fluxo de Caixa", df_fc), file_name="fluxo.pdf"): st.success("Download iniciado!")
+        if st.download_button("Baixar Fluxo de Caixa PDF", data=gerar_pdf("1. FLUXO DE CAIXA E VARIAÇÃO", df_fc), file_name="fluxo.pdf"): st.success("Download iniciado!")
     else: st.info("Sem dados.")
 
 # --- ABA ESTOQUE ---
@@ -274,7 +290,6 @@ elif menu == "Contabilidade":
             cols = st.columns(3)
             for i, nome_conta in enumerate(df_g['nome_conta'].unique()):
                 d_conta = df_g[df_g['nome_conta'] == nome_conta]
-                # Saldo anterior + movimento período
                 ant = d_conta[d_conta['data_lancamento'].dt.date < d_inicio]
                 per = d_conta[mask_periodo]
                 deb = per[per['operacao'] == 'DEBITO']['valor'].sum()
@@ -296,5 +311,5 @@ elif menu == "Contabilidade":
             st.subheader("Balancete de Verificação")
             bal = df[mask_periodo].groupby(['grupo', 'nome_conta', 'operacao'])['valor'].sum().unstack(fill_value=0.0)
             st.table(bal)
-            if st.download_button("Baixar Balancete PDF", data=gerar_pdf("Balancete", bal.reset_index()), file_name="balancete.pdf"): st.success("Download iniciado!")
+            if st.download_button("Baixar Balancete PDF", data=gerar_pdf("3. BALANÇO PATRIMONIAL CONSOLIDADO", bal.reset_index()), file_name="balancete.pdf"): st.success("Download iniciado!")
     else: st.info("Sem dados.")
