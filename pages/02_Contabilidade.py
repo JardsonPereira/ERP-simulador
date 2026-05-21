@@ -64,31 +64,38 @@ if lancamentos and contas:
         st.dataframe(pivot_final.style.format("R$ {:,.2f}"), use_container_width=True)
 
     with tab3:
-        # Lógica Balanço
+        # Lógica de Balanço Patrimonial (Classificação Rígida)
         df_balanco = df_p.groupby(['grupo', 'nome_conta']).apply(
             lambda x: x[x['operacao'] == 'DEBITO']['valor'].sum() - x[x['operacao'] == 'CREDITO']['valor'].sum()
         ).reset_index(name='Saldo')
 
+        # Função de classificação restrita
         def categoria_balanco(grupo):
             g = grupo.lower()
             if 'ativo' in g: return 'Ativo'
             if 'passivo' in g: return 'Passivo'
-            return 'PL'
+            return 'PL' # Força tudo que não é Ativo ou Passivo para PL
 
         df_balanco['Tipo'] = df_balanco['grupo'].apply(categoria_balanco)
 
+        # Separando DataFrames
         ativo_df = df_balanco[df_balanco['Tipo'] == 'Ativo'][['nome_conta', 'Saldo']]
-        passivo_pl_df = df_balanco[df_balanco['Tipo'] != 'Ativo'][['nome_conta', 'Saldo']]
+        # Agrupamos Passivo e PL na mesma coluna, conforme padrão contábil
+        passivo_pl_df = df_balanco[df_balanco['Tipo'].isin(['Passivo', 'PL'])][['nome_conta', 'Saldo']]
+        
+        # Correção de sinais para exibição (sempre positivo no relatório)
         passivo_pl_df['Saldo'] = passivo_pl_df['Saldo'].abs()
 
         col_a, col_p = st.columns(2)
         with col_a:
-            st.subheader("📋 ATIVO"); st.dataframe(ativo_df, use_container_width=True, hide_index=True)
+            st.subheader("📋 ATIVO")
+            st.dataframe(ativo_df, use_container_width=True, hide_index=True)
             total_ativo = ativo_df['Saldo'].sum()
             st.metric("Total Ativo", f"R$ {total_ativo:,.2f}")
 
         with col_p:
-            st.subheader("📋 PASSIVO E PL"); st.dataframe(passivo_pl_df, use_container_width=True, hide_index=True)
+            st.subheader("📋 PASSIVO E PL")
+            st.dataframe(passivo_pl_df, use_container_width=True, hide_index=True)
             total_passivo_pl = passivo_pl_df['Saldo'].sum()
             st.metric("Total Passivo + PL", f"R$ {total_passivo_pl:,.2f}")
 
