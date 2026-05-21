@@ -3,6 +3,9 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from utils import get_supabase, get_data_cached, check_auth, inject_css
 
 check_auth(); inject_css(); supabase = get_supabase()
+# Adicione isso temporariamente para ver se os dados estão vindo
+lancamentos = get_data_cached("lancamentos", st.session_state.user.id)
+st.write("Dados brutos do banco:", lancamentos)
 
 st.header("📝 Lançamentos Contábeis")
 tab1, tab2, tab3 = st.tabs(["Realizar Lançamento", "Nova Conta", "Gerenciar Lançamentos"])
