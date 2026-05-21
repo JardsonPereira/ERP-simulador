@@ -3,6 +3,8 @@ import pandas as pd
 import os
 from supabase import create_client
 from dotenv import load_dotenv
+from fpdf import FPDF
+import io
 
 # --- CONFIGURAÇÃO INICIAL ---
 load_dotenv()
@@ -17,12 +19,25 @@ st.markdown("""
 <style>
     .stApp { background-color: #f4f7f6; }
     .card { background-color: #ffffff; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px; }
-    .stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; border-left: 5px solid #007bff; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
     .t-account { background: white; padding: 15px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); border: 1px solid #e0e0e0; margin-bottom: 15px; }
     .t-title { text-align: center; font-weight: bold; font-size: 1.1em; margin-bottom: 5px; border-bottom: 2px solid #333; }
     .t-saldo { text-align: center; font-weight: bold; font-size: 1em; margin-top: 5px; border-top: 2px solid #333; color: #0056b3; }
 </style>
 """, unsafe_allow_html=True)
+
+# --- FUNÇÃO DE PDF ---
+def gerar_pdf(titulo, df):
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", 'B', 16)
+    pdf.cell(0, 10, titulo, ln=True, align='C')
+    pdf.set_font("Arial", size=10)
+    pdf.ln(10)
+    # Tabela simples
+    for index, row in df.iterrows():
+        line = " | ".join([str(val) for val in row.values])
+        pdf.cell(0, 10, line, ln=True)
+    return pdf.output(dest='S').encode('latin-1')
 
 # --- AUTENTICAÇÃO ---
 if 'user' not in st.session_state:
@@ -52,7 +67,6 @@ def get_data(table):
 
 # --- INTERFACE PRINCIPAL ---
 st.sidebar.title(f"🏢 ERP Didático")
-st.sidebar.caption(f"Usuário: {st.session_state.user.email}")
 menu = st.sidebar.radio("Navegação", ["Contabilidade", "Lançamentos", "Fluxo de Caixa", "DRE", "Estoque"])
 
 # --- ABA LANÇAMENTOS ---
@@ -71,7 +85,7 @@ if menu == "Lançamentos":
 
     with tab1:
         contas = get_data("contas")
-        lancamentos_full = get_data("lancamentos") # Necessário para validação de estoque
+        lancamentos_full = get_data("lancamentos")
         if not contas: st.warning("Crie uma conta primeiro.")
         else:
             with st.container():
@@ -88,7 +102,6 @@ if menu == "Lançamentos":
                     if not just: st.error("Preencha a justificativa.")
                     else:
                         conta_selecionada = next(c for c in contas if c['nome_conta'] == conta)
-                        # --- Validação CMV ---
                         if conta_selecionada['grupo'] == 'CMV':
                             df_full = pd.DataFrame(lancamentos_full) if lancamentos_full else pd.DataFrame()
                             stock_ids = [c['id'] for c in contas if c['grupo'] == 'ATIVO CIRCULANTE ESTOQUE']
@@ -97,9 +110,8 @@ if menu == "Lançamentos":
                                 stock_bal = df_stock[df_stock['operacao'] == 'DEBITO']['valor'].sum() - \
                                             df_stock[df_stock['operacao'] == 'CREDITO']['valor'].sum()
                                 if float(valor) > stock_bal:
-                                    st.error(f"Erro: Valor do CMV (R${valor:.2f}) excede o saldo disponível no Estoque (R${stock_bal:.2f}).")
+                                    st.error(f"Erro: Valor do CMV excede o estoque (R${stock_bal:.2f}).")
                                     st.stop()
-                        
                         supabase.table("lancamentos").insert({"user_id": st.session_state.user.id, "conta_id": mapa[conta], "operacao": op, "valor": float(valor), "status_financeiro": status, "data_lancamento": str(data), "justificativa": just}).execute()
                         st.success("Lançamento efetuado!"); st.rerun()
 
@@ -141,7 +153,7 @@ if menu == "Lançamentos":
 
 # --- ABA DRE ---
 elif menu == "DRE":
-    st.header("📈 DRE - Demonstração do Resultado")
+    st.header("📈 DRE")
     lancamentos = get_data("lancamentos")
     contas = get_data("contas")
     if lancamentos and contas:
@@ -163,14 +175,17 @@ elif menu == "DRE":
         lucro_bruto = receita_bruta - cmv
         lucro_liquido = lucro_bruto - despesas - encargos
         
-        dre_data = {"Descrição": ["(+) Receita Bruta", "(-) CMV", "(=) Lucro Bruto", "(-) Despesas Operacionais", "(-) Encargos Financeiros", "(=) Lucro/Prejuízo Líquido"],
-                    "Valor": [receita_bruta, cmv, lucro_bruto, despesas, encargos, lucro_liquido]}
-        st.table(pd.DataFrame(dre_data).set_index("Descrição").style.format("R$ {:,.2f}"))
+        dre_data = pd.DataFrame({"Descrição": ["(+) Receita Bruta", "(-) CMV", "(=) Lucro Bruto", "(-) Despesas Operacionais", "(-) Encargos Financeiros", "(=) Lucro/Prejuízo Líquido"],
+                    "Valor": [receita_bruta, cmv, lucro_bruto, despesas, encargos, lucro_liquido]})
+        st.table(dre_data.set_index("Descrição").style.format("R$ {:,.2f}"))
+        
+        if st.download_button("Baixar DRE PDF", data=gerar_pdf("DRE", dre_data), file_name="dre.pdf"):
+            st.success("Download iniciado!")
     else: st.info("Dados insuficientes.")
 
 # --- ABA FLUXO DE CAIXA ---
 elif menu == "Fluxo de Caixa":
-    st.header("💵 Fluxo de Caixa Detalhado")
+    st.header("💵 Fluxo de Caixa")
     lancamentos = get_data("lancamentos")
     contas = get_data("contas")
     
@@ -185,17 +200,13 @@ elif menu == "Fluxo de Caixa":
         mask_periodo = (df['data_lancamento'].dt.date >= d_inicio) & (df['data_lancamento'].dt.date <= d_fim)
         mask_anterior = (df['data_lancamento'].dt.date < d_inicio)
         
+        # Saldo Inicial acumulado de períodos anteriores
+        df_anterior = df[mask_anterior].copy()
+        df_anterior['fluxo_ant'] = df_anterior.apply(lambda x: x['valor'] if x['status_financeiro'] == 'ENTRADA' else (-x['valor'] if x['status_financeiro'] == 'PAGO' else 0), axis=1)
+        saldo_inicial = df_anterior['fluxo_ant'].sum()
+        
         df_fc = df.loc[mask_periodo & df['status_financeiro'].isin(['ENTRADA', 'PAGO'])].copy()
-        
-        def calcular_fluxo(row):
-            if row['status_financeiro'] == 'ENTRADA': return row['valor']
-            elif row['status_financeiro'] == 'PAGO': return -row['valor']
-            return 0
-        df_fc['fluxo'] = df_fc.apply(calcular_fluxo, axis=1)
-        
-        df_caixa_anterior = df[(df['grupo'] == 'ATIVO CIRCULANTE') & mask_anterior]
-        df_caixa_anterior['fluxo'] = df_caixa_anterior.apply(lambda x: x['valor'] if x['operacao'] == 'CREDITO' else -x['valor'], axis=1)
-        saldo_inicial = df_caixa_anterior['fluxo'].sum()
+        df_fc['fluxo'] = df_fc.apply(lambda x: x['valor'] if x['status_financeiro'] == 'ENTRADA' else -x['valor'], axis=1)
         
         entradas = df_fc[df_fc['fluxo'] > 0]['fluxo'].sum()
         saidas = abs(df_fc[df_fc['fluxo'] < 0]['fluxo'].sum())
@@ -209,25 +220,58 @@ elif menu == "Fluxo de Caixa":
         
         st.table(df_fc[['data_lancamento', 'nome_conta', 'operacao', 'valor', 'status_financeiro']])
         
-        st.subheader("📊 Análise de Liquidez e Passivo")
-        df_passivo = df[df['grupo'].isin(['PASSIVO CIRCULANTE', 'PASSIVO NÃO CIRCULANTE'])]
-        df_passivo['val_contabil'] = df_passivo.apply(lambda x: x['valor'] if x['operacao'] == 'CREDITO' else -x['valor'], axis=1)
-        
-        passivo_circ = df[df['grupo'] == 'PASSIVO CIRCULANTE']['valor'].sum()
-        passivo_total = df_passivo['val_contabil'].sum()
+        if st.download_button("Baixar Fluxo de Caixa PDF", data=gerar_pdf("Fluxo de Caixa", df_fc[['data_lancamento', 'nome_conta', 'valor']]), file_name="fluxo.pdf"):
+            st.success("Download iniciado!")
+            
+    else: st.info("Sem dados.")
+
+# --- ABA CONTABILIDADE ---
+elif menu == "Contabilidade":
+    st.header("📚 Contabilidade")
+    lancamentos = get_data("lancamentos")
+    contas = get_data("contas")
+    if lancamentos and contas:
+        df = pd.DataFrame(lancamentos).merge(pd.DataFrame(contas), left_on='conta_id', right_on='id')
+        df['data_lancamento'] = pd.to_datetime(df['data_lancamento'])
         
         c1, c2 = st.columns(2)
-        with c1:
-            st.table(df_passivo.groupby('grupo')['val_contabil'].sum().reset_index())
-            st.metric("Total Geral Passivo", f"R$ {passivo_total:,.2f}")
+        d_inicio = c1.date_input("Início", value=df['data_lancamento'].min().date())
+        d_fim = c2.date_input("Fim", value=df['data_lancamento'].max().date())
         
-        with c2:
-            liq_circ_perc = (saldo_final / passivo_circ * 100) if passivo_circ > 0 else 0
-            liq_total_perc = (saldo_final / passivo_total * 100) if passivo_total > 0 else 0
-            st.metric("Liquidez (Saldo / Passivo Circ.)", f"{liq_circ_perc:.2f}%")
-            st.metric("Liquidez (Saldo / Passivo Total)", f"{liq_total_perc:.2f}%")
+        # Filtro com Acumulado
+        mask_periodo = (df['data_lancamento'].dt.date >= d_inicio) & (df['data_lancamento'].dt.date <= d_fim)
+        mask_anterior = (df['data_lancamento'].dt.date < d_inicio)
+        
+        tab_r, tab_b = st.tabs(["Razonetes", "Balancete"])
+        
+        with tab_r:
+            grupos_disponiveis = df['grupo'].unique()
+            grupo_selecionado = st.selectbox("Selecione o Grupo:", grupos_disponiveis)
+            df_g = df[df['grupo'] == grupo_selecionado]
+            
+            for nome_conta in df_g['nome_conta'].unique():
+                d_conta = df_g[df_g['nome_conta'] == nome_conta]
+                # Saldo inicial das contas
+                ant = d_conta[d_conta['data_lancamento'].dt.date < d_inicio]
+                per = d_conta[mask_periodo]
+                deb = per[per['operacao'] == 'DEBITO']['valor'].sum()
+                cre = per[per['operacao'] == 'CREDITO']['valor'].sum()
+                # Saldo acumulado (considerando inicial + período)
+                saldo_inicial = ant[ant['operacao'] == 'DEBITO']['valor'].sum() - ant[ant['operacao'] == 'CREDITO']['valor'].sum()
+                saldo_final = abs(saldo_inicial + deb - cre)
+                
+                st.markdown(f"""<div class="t-account"><div class="t-title">{nome_conta} (Saldo Ini: {saldo_inicial:,.2f})</div>
+                            <table style="width:100%"><tr><td>D: {deb:,.2f}</td><td>C: {cre:,.2f}</td></tr></table>
+                            <div class="t-saldo">Saldo Final: {saldo_final:,.2f}</div></div>""", unsafe_allow_html=True)
 
-    else: st.info("Sem dados.")
+        with tab_b:
+            st.subheader("Balancete Acumulado")
+            bal = df[mask_periodo].groupby(['grupo', 'nome_conta', 'operacao'])['valor'].sum().unstack(fill_value=0.0)
+            st.table(bal)
+            if st.download_button("Baixar Balancete PDF", data=gerar_pdf("Balancete", bal.reset_index()), file_name="balancete.pdf"):
+                st.success("Download iniciado!")
+    else:
+        st.info("Sem dados.")
 
 # --- ABA ESTOQUE ---
 elif menu == "Estoque":
@@ -238,75 +282,13 @@ elif menu == "Estoque":
     if lancamentos and contas:
         df = pd.DataFrame(lancamentos).merge(pd.DataFrame(contas), left_on='conta_id', right_on='id')
         df_est = df[df['grupo'] == 'ATIVO CIRCULANTE ESTOQUE'].copy()
-        df_est['tipo'] = df_est.apply(lambda x: "Entrada" if x['operacao'] == 'DEBITO' else "Saída", axis=1)
-        
-        total_entradas = df_est[df_est['operacao'] == 'DEBITO']['valor'].sum()
-        total_saidas = df_est[df_est['operacao'] == 'CREDITO']['valor'].sum()
         
         c1, c2, c3 = st.columns(3)
-        c1.metric("Entradas (Estoque)", f"R$ {total_entradas:,.2f}")
-        c2.metric("Saídas (Estoque)", f"R$ {total_saidas:,.2f}")
-        c3.metric("Saldo em Estoque", f"R$ {total_entradas - total_saidas:,.2f}")
+        total_entradas = df_est[df_est['operacao'] == 'DEBITO']['valor'].sum()
+        total_saidas = df_est[df_est['operacao'] == 'CREDITO']['valor'].sum()
+        c1.metric("Entradas", f"R$ {total_entradas:,.2f}")
+        c2.metric("Saídas", f"R$ {total_saidas:,.2f}")
+        c3.metric("Saldo", f"R$ {total_entradas - total_saidas:,.2f}")
         with st.container(border=True):
-            st.table(df_est[['data_lancamento', 'nome_conta', 'tipo', 'valor']])
+            st.table(df_est[['data_lancamento', 'nome_conta', 'operacao', 'valor']])
     else: st.info("Nenhuma movimentação de estoque registrada.")
-
-# --- ABA CONTABILIDADE ---
-elif menu == "Contabilidade":
-    st.header("📚 Contabilidade")
-    lancamentos = get_data("lancamentos")
-    contas = get_data("contas")
-    if lancamentos and contas:
-        df = pd.DataFrame(lancamentos).merge(pd.DataFrame(contas), left_on='conta_id', right_on='id')
-        df['data_lancamento'] = pd.to_datetime(df['data_lancamento'])
-        if 'justificativa' not in df.columns: df = df.assign(justificativa='-')
-        df['justificativa'] = df['justificativa'].fillna('-')
-        
-        c1, c2 = st.columns(2)
-        d_inicio = c1.date_input("Início", value=df['data_lancamento'].min().date())
-        d_fim = c2.date_input("Fim", value=df['data_lancamento'].max().date())
-        mask = (df['data_lancamento'].dt.date >= d_inicio) & (df['data_lancamento'].dt.date <= d_fim)
-        df_f = df.loc[mask]
-            
-        tab_r, tab_b = st.tabs(["Razonetes", "Balancete"])
-        with tab_r:
-            grupos_disponiveis = df_f['grupo'].unique()
-            grupo_selecionado = st.selectbox("Selecione o Grupo para visualizar:", grupos_disponiveis)
-            
-            st.markdown(f"### 📁 {grupo_selecionado}")
-            df_g = df_f[df_f['grupo'] == grupo_selecionado]
-            cols = st.columns(3)
-            for i, nome_conta in enumerate(df_g['nome_conta'].unique()):
-                d_conta = df_g[df_g['nome_conta'] == nome_conta]
-                deb = d_conta[d_conta['operacao'] == 'DEBITO']['valor'].sum()
-                cre = d_conta[d_conta['operacao'] == 'CREDITO']['valor'].sum()
-                saldo = abs(deb - cre)
-                
-                html = f"""
-                <div class="t-account">
-                    <div class="t-title">{nome_conta}</div>
-                    <table style="width:100%">
-                        <tr><td style="text-align:center; border-right:1px solid #ddd">Débito</td><td style="text-align:center">Crédito</td></tr>
-                        <tr>
-                            <td style="text-align:center; border-right:1px solid #ddd; color: #28a745;"><b>{deb:,.2f}</b></td>
-                            <td style="text-align:center; color: #dc3545;"><b>{cre:,.2f}</b></td>
-                        </tr>
-                    </table>
-                    <div class="t-saldo">Saldo: {saldo:,.2f}</div>
-                </div>
-                """
-                cols[i % 3].markdown(html, unsafe_allow_html=True)
-                    
-        with tab_b:
-            st.subheader("Balancete de Verificação")
-            bal = df_f.groupby(['grupo', 'nome_conta', 'operacao'])['valor'].sum().unstack(fill_value=0.0)
-            if 'DEBITO' not in bal.columns: bal['DEBITO'] = 0.0
-            if 'CREDITO' not in bal.columns: bal['CREDITO'] = 0.0
-            bal['SALDO DEVEDOR'] = bal.apply(lambda x: x['DEBITO'] - x['CREDITO'] if x['DEBITO'] > x['CREDITO'] else 0.0, axis=1)
-            bal['SALDO CREDOR'] = bal.apply(lambda x: x['CREDITO'] - x['DEBITO'] if x['CREDITO'] > x['DEBITO'] else 0.0, axis=1)
-            bal_final = bal.reset_index()
-            total_row = pd.DataFrame({'grupo': ['TOTAL GERAL'], 'nome_conta': [''], 'DEBITO': [bal['DEBITO'].sum()], 'CREDITO': [bal['CREDITO'].sum()], 'SALDO DEVEDOR': [bal['SALDO DEVEDOR'].sum()], 'SALDO CREDOR': [bal['SALDO CREDOR'].sum()]})
-            bal_final = pd.concat([bal_final, total_row], ignore_index=True)
-            st.table(bal_final.style.format({"DEBITO": "R$ {:,.2f}", "CREDITO": "R$ {:,.2f}", "SALDO DEVEDOR": "R$ {:,.2f}", "SALDO CREDOR": "R$ {:,.2f}"}))
-    else:
-        st.info("Sem dados.")
