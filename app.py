@@ -25,44 +25,17 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- FUNÇÃO DE RELATÓRIO CONSOLIDADO ---
-def gerar_relatorio_consolidado(usuario, periodo, saldo_ini, saldo_fin, df_dre, df_balanco):
+# --- FUNÇÃO DE PDF (ISOLADA) ---
+def gerar_pdf(titulo, df):
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Arial", 'B', 16)
-    pdf.cell(0, 10, "RELATÓRIO CONTÁBIL CONSOLIDADO", ln=True, align='C')
+    pdf.cell(0, 10, titulo, ln=True, align='C')
     pdf.set_font("Arial", size=10)
-    pdf.cell(0, 8, f"Usuário: {usuario}", ln=True)
-    pdf.cell(0, 8, f"Período: {periodo} | Gerado em: {pd.Timestamp.now().strftime('%d/%m/%Y %H:%M')}", ln=True)
     pdf.ln(10)
-    
-    # 1. Fluxo de Caixa
-    pdf.set_font("Arial", 'B', 12)
-    pdf.cell(0, 10, "1. FLUXO DE CAIXA E VARIAÇÃO", ln=True)
-    pdf.set_font("Arial", size=10)
-    pdf.cell(0, 8, f"Saldo Inicial: R$ {float(saldo_ini):,.2f}", ln=True)
-    pdf.cell(0, 8, f"Saldo Final: R$ {float(saldo_fin):,.2f}", ln=True)
-    pdf.ln(10)
-    
-    # 2. DRE
-    pdf.set_font("Arial", 'B', 12)
-    pdf.cell(0, 10, "2. DEMONSTRAÇÃO DO RESULTADO (DRE)", ln=True)
-    pdf.set_font("Arial", size=10)
-    for _, row in df_dre.iterrows():
-        pdf.cell(0, 8, f"{row.iloc[0]}: R$ {float(row.iloc[1]):,.2f}", ln=True)
-    pdf.ln(10)
-    
-    # 3. Balanço
-    pdf.set_font("Arial", 'B', 12)
-    pdf.cell(0, 10, "3. BALANÇO PATRIMONIAL CONSOLIDADO", ln=True)
-    pdf.set_font("Arial", 'B', 10)
-    pdf.cell(95, 10, "Conta", border=1); pdf.cell(95, 10, "Valor (R$)", border=1)
-    pdf.ln()
-    pdf.set_font("Arial", size=10)
-    for _, row in df_balanco.iterrows():
-        pdf.cell(95, 8, str(row.iloc[0]), border=1)
-        pdf.cell(95, 8, f"{float(row.iloc[1]):,.2f}", border=1)
-        pdf.ln()
+    for index, row in df.iterrows():
+        line = " | ".join([str(val) for val in row.values])
+        pdf.cell(0, 10, line, ln=True)
     return pdf.output(dest='S').encode('latin-1')
 
 # --- AUTENTICAÇÃO ---
@@ -96,30 +69,21 @@ st.sidebar.title(f"🏢 ERP Didático")
 st.sidebar.caption(f"Usuário: {st.session_state.user.email}")
 menu = st.sidebar.radio("Navegação", ["Contabilidade", "Lançamentos", "Fluxo de Caixa", "DRE", "Estoque"])
 
-# --- SIDEBAR: RELATÓRIO CONSOLIDADO ---
-if st.sidebar.button("📄 Baixar Relatório Completo"):
-    lanc = get_data("lancamentos")
-    cont = get_data("contas")
-    if lanc and cont:
-        df = pd.DataFrame(lanc).merge(pd.DataFrame(cont), left_on='conta_id', right_on='id')
-        dre_ex = pd.DataFrame({"Desc": ["Receita", "Lucro"], "Val": [0, 0]})
-        bal_ex = pd.DataFrame({"Conta": ["Caixa"], "Val": [0]})
-        pdf_data = gerar_relatorio_consolidado(st.session_state.user.email, "Geral", 0, 0, dre_ex, bal_ex)
-        st.download_button("Clique aqui para baixar", data=pdf_data, file_name="relatorio_final.pdf")
-
 # --- ABA LANÇAMENTOS ---
 if menu == "Lançamentos":
     st.header("📝 Lançamentos Contábeis")
     tab1, tab2, tab3 = st.tabs(["Realizar Lançamento", "Nova Conta", "Gerenciar Lançamentos"])
     with tab2:
-        st.subheader("Cadastrar Nova Conta")
-        nome = st.text_input("Nome da Conta")
-        grupo = st.selectbox("Grupo", ["ATIVO CIRCULANTE", "ATIVO CIRCULANTE ESTOQUE", "ATIVO NÃO CIRCULANTE", "PASSIVO CIRCULANTE", "PASSIVO NÃO CIRCULANTE", "PL", "RECEITAS", "DESPESAS", "CMV", "ENCARGOS FINANCEIROS"])
-        if st.button("Salvar Conta", type="primary"):
-            supabase.table("contas").insert({"user_id": st.session_state.user.id, "nome_conta": nome, "grupo": grupo}).execute()
-            st.success("Conta salva!"); st.rerun()
+        with st.container():
+            st.subheader("Cadastrar Nova Conta")
+            nome = st.text_input("Nome da Conta")
+            grupo = st.selectbox("Grupo", ["ATIVO CIRCULANTE", "ATIVO CIRCULANTE ESTOQUE", "ATIVO NÃO CIRCULANTE", "PASSIVO CIRCULANTE", "PASSIVO NÃO CIRCULANTE", "PL", "RECEITAS", "DESPESAS", "CMV", "ENCARGOS FINANCEIROS"])
+            if st.button("Salvar Conta", type="primary"):
+                supabase.table("contas").insert({"user_id": st.session_state.user.id, "nome_conta": nome, "grupo": grupo}).execute()
+                st.success("Conta salva!"); st.rerun()
     with tab1:
         contas = get_data("contas")
+        lancamentos_full = get_data("lancamentos")
         if not contas: st.warning("Crie uma conta primeiro.")
         else:
             mapa = {c['nome_conta']: c['id'] for c in contas}
@@ -141,8 +105,8 @@ if menu == "Lançamentos":
             df_g = pd.DataFrame(lancamentos)
             df_g['data_lancamento'] = pd.to_datetime(df_g['data_lancamento'])
             mapa_id_nome = {c['id']: c['nome_conta'] for c in contas}
-            opcoes = {f"{l['data_lancamento'].strftime('%Y-%m-%d')} | {mapa_id_nome.get(l['conta_id'])} | {l['operacao']} | R$ {l['valor']:.2f}" : l['id'] for l in lancamentos}
-            selecao = st.selectbox("Selecione para Excluir:", list(opcoes.keys()))
+            opcoes = {f"{l['data_lancamento'].date()} | {mapa_id_nome.get(l['conta_id'])} | {l['operacao']} | R$ {l['valor']:.2f}" : l['id'] for l in lancamentos}
+            selecao = st.selectbox("Selecione para Editar/Excluir:", list(opcoes.keys()))
             if st.button("Excluir"):
                 supabase.table("lancamentos").delete().eq("id", opcoes[selecao]).execute(); st.rerun()
 
@@ -154,26 +118,49 @@ elif menu == "DRE":
     if lancamentos and contas:
         df = pd.DataFrame(lancamentos).merge(pd.DataFrame(contas), left_on='conta_id', right_on='id')
         df['data_lancamento'] = pd.to_datetime(df['data_lancamento'])
-        receita = df[df['grupo'] == 'RECEITAS']['valor'].sum()
-        cmv = df[df['grupo'] == 'CMV']['valor'].sum()
-        desp = df[df['grupo'] == 'DESPESAS']['valor'].sum()
-        lucro = receita - cmv - desp
-        dre_data = pd.DataFrame({"Descrição": ["(+) Receita", "(-) CMV", "(-) Despesas", "(=) Lucro"], "Valor": [receita, cmv, desp, lucro]})
-        st.table(dre_data)
+        c1, c2 = st.columns(2)
+        d_i = c1.date_input("Início", value=df['data_lancamento'].min().date())
+        d_f = c2.date_input("Fim", value=df['data_lancamento'].max().date())
+        mask = (df['data_lancamento'].dt.date >= d_i) & (df['data_lancamento'].dt.date <= d_f)
+        df_dre = df.loc[mask]
+        
+        grupos_dre = ['RECEITAS', 'DESPESAS', 'CMV', 'ENCARGOS FINANCEIROS']
+        df_dre = df_dre[df_dre['grupo'].isin(grupos_dre)]
+        
+        receita_bruta = df_dre[df_dre['grupo'] == 'RECEITAS']['valor'].sum()
+        cmv = df_dre[df_dre['grupo'] == 'CMV']['valor'].sum()
+        despesas = df_dre[df_dre['grupo'] == 'DESPESAS']['valor'].sum()
+        encargos = df_dre[df_dre['grupo'] == 'ENCARGOS FINANCEIROS']['valor'].sum()
+        lucro_bruto = receita_bruta - cmv
+        lucro_liquido = lucro_bruto - despesas - encargos
+        
+        dre_data = pd.DataFrame({"Descrição": ["(+) Receita Bruta", "(-) CMV", "(=) Lucro Bruto", "(-) Despesas Operacionais", "(-) Encargos Financeiros", "(=) Lucro/Prejuízo Líquido"],
+                                "Valor": [receita_bruta, cmv, lucro_bruto, despesas, encargos, lucro_liquido]})
+        st.table(dre_data.set_index("Descrição").style.format("R$ {:,.2f}"))
+        
+        # Botão mantido ao final sem quebrar a lógica
+        if st.download_button("Baixar DRE PDF", data=gerar_pdf("DRE", dre_data), file_name="dre.pdf"): st.success("Download iniciado!")
+    else: st.info("Dados insuficientes.")
 
 # --- ABA FLUXO DE CAIXA ---
 elif menu == "Fluxo de Caixa":
-    st.header("💵 Fluxo de Caixa")
+    st.header("💵 Fluxo de Caixa Detalhado")
     lancamentos = get_data("lancamentos")
     contas = get_data("contas")
     if lancamentos and contas:
         df = pd.DataFrame(lancamentos).merge(pd.DataFrame(contas), left_on='conta_id', right_on='id')
         st.table(df[['data_lancamento', 'nome_conta', 'valor']])
+        if st.download_button("Baixar Fluxo de Caixa PDF", data=gerar_pdf("Fluxo de Caixa", df), file_name="fluxo.pdf"): st.success("Download iniciado!")
+    else: st.info("Sem dados.")
 
 # --- ABA ESTOQUE ---
 elif menu == "Estoque":
-    st.header("📦 Estoque")
-    st.info("Movimentação de estoque.")
+    st.header("📦 Movimentação de Estoque")
+    lancamentos = get_data("lancamentos")
+    contas = get_data("contas")
+    if lancamentos and contas:
+        df = pd.DataFrame(lancamentos).merge(pd.DataFrame(contas), left_on='conta_id', right_on='id')
+        st.table(df[['data_lancamento', 'nome_conta', 'valor']])
 
 # --- ABA CONTABILIDADE ---
 elif menu == "Contabilidade":
