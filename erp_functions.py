@@ -3,46 +3,40 @@ import pandas as pd
 from logic import processar_venda_integrada
 
 def mostrar_vendas_erp(supabase):
-    st.header("🛒 Módulo de Vendas (Simulação ERP)")
-    produtos = supabase.table("produtos").select("*").execute().data
+    st.header("🛒 Módulo de Vendas")
+    # Busca produtos e trata erro se a tabela estiver vazia
+    resp = supabase.table("produtos").select("*").execute()
+    produtos = resp.data if resp.data else []
     
+    if not produtos:
+        st.warning("Cadastre produtos no menu Gestão primeiro.")
+        return
+
     with st.form("form_venda"):
         p_nome = st.selectbox("Produto", [p['nome'] for p in produtos])
         qtd = st.number_input("Quantidade", min_value=1, step=1)
-        
         if st.form_submit_button("Efetivar Venda"):
-            try:
-                prod = next(p for p in produtos if p['nome'] == p_nome)
-                processar_venda_integrada(supabase, prod['id'], qtd, prod['preco_venda'])
-                st.success("Nota, Estoque e Contabilidade integrados!")
-            except Exception as e:
-                st.error(f"Erro na integração: {e}")
+            prod = next(p for p in produtos if p['nome'] == p_nome)
+            processar_venda_integrada(supabase, prod['id'], qtd, prod['preco_venda'])
+            st.success("Operação integrada com sucesso!")
 
-def mostrar_gestao(supabase, id_usuario):
+def mostrar_gestao(supabase):
     st.header("⚙️ Gestão de Cadastros")
-    with st.expander("Cadastrar Novo Produto (WMS)"):
-        with st.form("add_prod"):
-            nome = st.text_input("Nome do Produto")
-            cat = st.selectbox("Categoria", ["Produtos", "Serviços"])
-            preco = st.number_input("Preço de Venda")
-            if st.form_submit_button("Cadastrar"):
-                supabase.table("produtos").insert({
-                    "nome": nome, "categoria": cat, "preco_venda": preco, "saldo_estoque": 100
-                }).execute()
-                st.rerun()
+    # ... (seu código de gestão aqui)
 
-def mostrar_razonetes(supabase, user_id, filtro):
+def mostrar_razonetes(supabase):
     st.header("📊 Razonetes")
-    # ... (seu código original de Razonetes aqui)
+    # Exemplo: dados = supabase.table("lancamentos").select("*").execute().data
+    st.info("Função Razonetes em desenvolvimento.")
 
-def mostrar_balancete(supabase, filtro):
+def mostrar_balancete(supabase):
     st.header("🧾 Balancete")
-    # ... (seu código original de Balancete aqui)
+    st.info("Função Balancete em desenvolvimento.")
 
-def mostrar_dre(df_periodo):
+def mostrar_dre(supabase):
     st.header("📈 DRE")
-    # ... (seu código original de DRE aqui)
+    st.info("Função DRE em desenvolvimento.")
 
-def mostrar_fluxo_caixa(df_periodo, df_balanco):
+def mostrar_fluxo_caixa(supabase):
     st.header("💸 Fluxo de Caixa")
-    # ... (seu código original de Fluxo aqui)
+    st.info("Função Fluxo de Caixa em desenvolvimento.")
