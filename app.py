@@ -4,7 +4,7 @@ import os
 from supabase import create_client
 from dotenv import load_dotenv
 
-# Configuração de ambiente
+# Configuração
 load_dotenv()
 url = os.environ.get("SUPABASE_URL")
 key = os.environ.get("SUPABASE_KEY")
@@ -25,7 +25,7 @@ if 'user' not in st.session_state:
         if res.user:
             try:
                 supabase.table("profiles").insert({"id": res.user.id, "username": username}).execute()
-                st.success("Conta criada! Agora faça login.")
+                st.success("Conta criada! Faça login.")
             except Exception as e:
                 st.error(f"Erro ao salvar perfil: {e}")
             
@@ -62,7 +62,7 @@ if menu == "Lançamentos":
     with tab1:
         contas = get_data("contas")
         if not contas:
-            st.warning("Crie uma conta primeiro na aba 'Nova Conta'.")
+            st.warning("Crie uma conta primeiro.")
         else:
             mapa = {c['nome_conta']: c['id'] for c in contas}
             c1, c2 = st.columns(2)
@@ -81,9 +81,10 @@ if menu == "Lançamentos":
                 }).execute()
                 st.success("Lançamento efetuado!")
 
-# --- ABA CONTABILIDADE ---
+# --- ABA CONTABILIDADE (RAZONETES E BALANCETE) ---
 elif menu == "Contabilidade":
     st.header("Contabilidade: Razonetes e Balancete")
+    
     lancamentos = get_data("lancamentos")
     contas = get_data("contas")
     
@@ -92,31 +93,32 @@ elif menu == "Contabilidade":
         df_c = pd.DataFrame(contas)
         df = df_l.merge(df_c, left_on='conta_id', right_on='id')
         
-        # Razonetes
+        # 1. Razonetes (Visualização tipo 'T')
+        st.subheader("Razonetes (Movimentações)")
         for nome_conta in df['nome_conta'].unique():
             with st.expander(f"Razonete: {nome_conta}"):
                 st.table(df[df['nome_conta'] == nome_conta][['operacao', 'valor', 'data_lancamento']])
 
-        # Balancete (Corrigido para evitar AttributeError)
+        # 2. Balancete de Verificação
         st.subheader("Balancete de Verificação")
-        df_balancete = df.groupby(['grupo', 'nome_conta', 'operacao'])['valor'].sum().unstack(fill_value=0.0)
+        balancete = df.groupby(['grupo', 'nome_conta', 'operacao'])['valor'].sum().unstack(fill_value=0.0)
         
-        # Forçar criação das colunas caso não existam
-        if 'DEBITO' not in df_balancete.columns: df_balancete['DEBITO'] = 0.0
-        if 'CREDITO' not in df_balancete.columns: df_balancete['CREDITO'] = 0.0
+        # Garantir colunas DEBITO e CREDITO
+        if 'DEBITO' not in balancete.columns: balancete['DEBITO'] = 0.0
+        if 'CREDITO' not in balancete.columns: balancete['CREDITO'] = 0.0
         
-        df_balancete['Saldo'] = df_balancete['DEBITO'] - df_balancete['CREDITO']
-        st.table(df_balancete)
+        balancete['Saldo'] = balancete['DEBITO'] - balancete['CREDITO']
+        st.table(balancete)
         
-        # Verificação
-        total_d = df_balancete['DEBITO'].sum()
-        total_c = df_balancete['CREDITO'].sum()
+        # Verificação de Equilíbrio
+        total_d = balancete['DEBITO'].sum()
+        total_c = balancete['CREDITO'].sum()
+        
         if abs(total_d - total_c) < 0.01:
-            st.success(f"Equilibrado! Débitos: R${total_d:.2f} | Créditos: R${total_c:.2f}")
+            st.success(f"Sistema Equilibrado! Total Débitos: R${total_d:,.2f} | Total Créditos: R${total_c:,.2f}")
         else:
-            st.error(f"Desequilibrado! Débitos: R${total_d:.2f} | Créditos: R${total_c:.2f}")
+            st.error(f"Sistema DESEQUILIBRADO! Débitos: R${total_d:,.2f} | Créditos: R${total_c:,.2f}")
 
-# --- ESTRUTURA PARA MÓDULOS FUTUROS ---
 else:
     st.header(f"Módulo: {menu}")
-    st.info("Em desenvolvimento...")
+    st.info("Funcionalidade em desenvolvimento.")
