@@ -6,7 +6,7 @@ from utils import get_supabase, get_data_cached, check_auth, inject_css
 
 check_auth(); inject_css(); supabase = get_supabase()
 
-st.header("📚 Razonetes e Balancete")
+st.header("📚 Contabilidade Completa")
 
 lancamentos = get_data_cached("lancamentos", st.session_state.user.id)
 contas = get_data_cached("contas", st.session_state.user.id)
@@ -22,12 +22,12 @@ if lancamentos and contas:
     mask = (df['data_lancamento'].dt.date >= d_inicio) & (df['data_lancamento'].dt.date <= d_fim)
     df_p = df[mask]
 
-    tab1, tab2 = st.tabs(["Razonetes (T)", "Balancete de Verificação"])
+    # Abas
+    tab1, tab2, tab3 = st.tabs(["Razonetes (T)", "Balancete", "Balanço Patrimonial"])
     
     with tab1:
-        # (Mantive a lógica dos Razonetes conforme discutido anteriormente)
         for grupo in sorted(df_p['grupo'].unique()):
-            st.markdown(f"---"); st.subheader(f"📁 {grupo}")
+            st.markdown("---"); st.subheader(f"📁 {grupo}")
             contas_grupo = sorted(df_p[df_p['grupo'] == grupo]['nome_conta'].unique())
             for i in range(0, len(contas_grupo), 3):
                 cols = st.columns(3)
@@ -49,30 +49,53 @@ if lancamentos and contas:
                             """, unsafe_allow_html=True)
 
     with tab2:
-        # Pivot Table
         pivot = df_p.pivot_table(index='nome_conta', columns='operacao', values='valor', aggfunc='sum', fill_value=0)
         pivot = pivot.reindex(columns=['DEBITO', 'CREDITO'], fill_value=0)
-        
-        # Cálculos de Saldo
         pivot['Saldo Devedor'] = (pivot['DEBITO'] - pivot['CREDITO']).clip(lower=0)
         pivot['Saldo Credor'] = (pivot['CREDITO'] - pivot['DEBITO']).clip(lower=0)
         
-        # Adicionar linha de TOTAIS (Padrão de sistemas reais)
         totais = pivot.sum()
-        totais.name = "TOTAL GERAL"
-        pivot_final = pd.concat([pivot, pd.DataFrame(totais).T])
+        pivot_final = pd.concat([pivot, pd.DataFrame(totais.rename("TOTAL")).T])
         
-        # Alerta de Balancete
-        if abs(pivot_final.loc['TOTAL GERAL', 'DEBITO'] - pivot_final.loc['TOTAL GERAL', 'CREDITO']) > 0.01:
-            st.error("⚠️ O Balancete NÃO está fechado! (Débito ≠ Crédito)")
+        if abs(pivot_final.loc['TOTAL', 'DEBITO'] - pivot_final.loc['TOTAL', 'CREDITO']) > 0.01:
+            st.error("⚠️ Balancete desbalanceado!")
         else:
-            st.success("✅ Balancete fechado com sucesso.")
+            st.success("✅ Balancete fechado.")
+        st.dataframe(pivot_final.style.format("R$ {:,.2f}"), use_container_width=True)
 
-        # Exibição Profissional
-        st.dataframe(pivot_final.style.format("R$ {:,.2f}")
-                     .map(lambda v: 'background-color: #f0f2f6; font-weight: bold', subset=pd.IndexSlice[['TOTAL GERAL'], :])
-                     .map(lambda v: 'background-color: #d4edda; color: #155724; font-weight: bold' if v > 0 else '', subset=['Saldo Devedor'])
-                     .map(lambda v: 'background-color: #f8d7da; color: #721c24; font-weight: bold' if v > 0 else '', subset=['Saldo Credor']),
-                     use_container_width=True)
+    with tab3:
+        # Lógica do Balanço
+        pivot_balanco = df_p.pivot_table(index=['grupo', 'nome_conta'], columns='operacao', values='valor', aggfunc='sum', fill_value=0)
+        pivot_balanco['Saldo'] = pivot_balanco.get('DEBITO', 0) - pivot_balanco.get('CREDITO', 0)
+        
+        # Categorização simples (Ajuste os nomes conforme seu grupo)
+        def definir_tipo(grupo):
+            g = grupo.lower()
+            if 'ativo' in g: return 'Ativo'
+            if 'passivo' in g: return 'Passivo'
+            return 'PL'
+
+        pivot_balanco['Tipo'] = pivot_balanco.index.get_level_values('grupo').map(definir_tipo)
+        
+        # Totais por tipo
+        resumo = pivot_balanco.groupby('Tipo')['Saldo'].sum()
+        
+        col_a, col_p, col_pl = st.columns(3)
+        col_a.metric("Ativo Total", f"R$ {resumo.get('Ativo', 0):,.2f}")
+        col_p.metric("Passivo Total", f"R$ {abs(resumo.get('Passivo', 0)):,.2f}")
+        col_pl.metric("Patrimônio Líquido", f"R$ {abs(resumo.get('PL', 0)):,.2f}")
+        
+        # Equação fundamental
+        ativo = resumo.get('Ativo', 0)
+        passivo_pl = abs(resumo.get('Passivo', 0)) + abs(resumo.get('PL', 0))
+        
+        st.divider()
+        if abs(ativo - passivo_pl) < 0.01:
+            st.success(f"Equação Equilibrada: Ativo (R${ativo:,.2f}) = Passivo + PL (R${passivo_pl:,.2f})")
+        else:
+            st.error(f"Diferença encontrada: Ativo (R${ativo:,.2f}) ≠ Passivo + PL (R${passivo_pl:,.2f})")
+
+        st.dataframe(pivot_balanco, use_container_width=True)
+
 else:
     st.info("Sem dados para exibir.")
