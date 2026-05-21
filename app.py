@@ -122,7 +122,6 @@ if menu == "Lançamentos":
                 st.rerun()
             st.divider()
 
-            # Mapeamento seguro (sem usar o Pandas) para evitar o erro APIError de numpy.int64
             mapa_contas_id_nome = {c['id']: c['nome_conta'] for c in contas}
             mapa_contas_nome_id = {c['nome_conta']: c['id'] for c in contas}
             
@@ -187,72 +186,64 @@ elif menu == "Contabilidade":
         btn_razonetes, btn_balancete = st.tabs(["Ver Razonetes (Gráfico T)", "Ver Balancete de Verificação"])
         
         # ----------------------------------------
-        # VISUALIZAÇÃO DOS RAZONETES EM FORMATO 'T'
+        # VISUALIZAÇÃO DOS RAZONETES EM FORMATO 'T' (AGRUPADOS)
         # ----------------------------------------
         with btn_razonetes:
-            st.subheader("Razonetes (Contas em 'T')")
+            st.subheader("Razonetes (Contas em 'T') - Resumo por Grupo")
             
-            cols = st.columns(2)
-            col_idx = 0
+            # Obtém os grupos únicos que possuem lançamentos
+            grupos_existentes = df['grupo'].dropna().unique()
             
-            for nome_conta in df['nome_conta'].unique():
-                dados_conta = df[df['nome_conta'] == nome_conta]
+            for grupo in grupos_existentes:
+                # Cria um cabeçalho para o grupo
+                st.markdown(f"### 📁 {grupo}")
                 
-                debitos = dados_conta[dados_conta['operacao'] == 'DEBITO'].reset_index(drop=True)
-                creditos = dados_conta[dados_conta['operacao'] == 'CREDITO'].reset_index(drop=True)
+                # Filtra os dados apenas para o grupo atual
+                df_grupo = df[df['grupo'] == grupo]
                 
-                total_debito = debitos['valor'].sum()
-                total_credito = creditos['valor'].sum()
-                saldo = total_debito - total_credito
+                cols = st.columns(2)
+                col_idx = 0
                 
-                max_linhas = max(len(debitos), len(creditos))
-                linhas_html = ""
-                
-                for i in range(max_linhas):
-                    if i < len(debitos):
-                        val_d = f"{debitos.loc[i, 'valor']:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-                        just_d = debitos.loc[i, 'justificativa'][:15] + "..." if len(debitos.loc[i, 'justificativa']) > 15 else debitos.loc[i, 'justificativa']
-                        texto_d = f"<span style='color:#a32626; font-size:11px; margin-right:15px;'>{just_d}</span> {val_d}"
-                    else:
-                        texto_d = ""
-                        
-                    if i < len(creditos):
-                        val_c = f"{creditos.loc[i, 'valor']:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-                        just_c = creditos.loc[i, 'justificativa'][:15] + "..." if len(creditos.loc[i, 'justificativa']) > 15 else creditos.loc[i, 'justificativa']
-                        texto_c = f"{val_c} <span style='color:#a32626; font-size:11px; margin-left:15px;'>{just_c}</span>"
-                    else:
-                        texto_c = ""
+                for nome_conta in df_grupo['nome_conta'].unique():
+                    dados_conta = df_grupo[df_grupo['nome_conta'] == nome_conta]
                     
-                    linhas_html += f"<tr><td style='border-right: 1px solid #999; padding: 2px 10px; text-align: right; width: 50%;'>{texto_d}</td><td style='padding: 2px 10px; text-align: left; width: 50%;'>{texto_c}</td></tr>"
+                    debitos = dados_conta[dados_conta['operacao'] == 'DEBITO'].reset_index(drop=True)
+                    creditos = dados_conta[dados_conta['operacao'] == 'CREDITO'].reset_index(drop=True)
+                    
+                    total_debito = debitos['valor'].sum()
+                    total_credito = creditos['valor'].sum()
+                    saldo = total_debito - total_credito
 
-                html_razonete = f"""<div style="display: flex; justify-content: center; margin-bottom: 40px;">
+                    html_razonete = f"""<div style="display: flex; justify-content: center; margin-bottom: 40px;">
 <table style="width: 90%; border-collapse: collapse; font-family: sans-serif; background-color: transparent;">
 <tr>
 <th colspan="2" style="border-bottom: 1px solid #777; padding-bottom: 5px; font-size: 16px; font-weight: normal; text-align: center; color: var(--text-color);">{nome_conta}</th>
 </tr>
 <tr>
-<td style="border-right: 1px solid #999; color: #2e8b57; padding: 2px; text-align: center; font-size: 13px;">debito</td>
-<td style="color: #a32626; padding: 2px; text-align: center; font-size: 13px;">credito</td>
-</tr>
-{linhas_html}
-<tr>
-<td style="border-right: 1px solid #999; border-top: 1px solid #ccc; padding: 5px 10px; text-align: right; color: #2e8b57;">{total_debito:,.2f}</td>
-<td style="border-top: 1px solid #ccc; padding: 5px 10px; text-align: left; color: #2e8b57;">{total_credito:,.2f}</td>
+<td style="border-right: 1px solid #999; color: #2e8b57; padding: 5px; text-align: center; font-size: 14px; width: 50%;">debito</td>
+<td style="color: #a32626; padding: 5px; text-align: center; font-size: 14px; width: 50%;">credito</td>
 </tr>
 <tr>
-<td style="border-right: 1px solid #999; padding: 5px 10px; text-align: center; font-weight: bold; color: #2e8b57;">{f"{saldo:,.2f}" if saldo > 0 else ""}</td>
-<td style="padding: 5px 10px; text-align: center; font-weight: bold; color: #2e8b57;">{f"{abs(saldo):,.2f}" if saldo < 0 else ""}</td>
+<td style="border-right: 1px solid #999; padding: 15px 10px; text-align: right; color: #2e8b57; font-size: 15px;">{total_debito:,.2f}</td>
+<td style="padding: 15px 10px; text-align: left; color: #a32626; font-size: 15px;">{total_credito:,.2f}</td>
 </tr>
 <tr>
-<td style="border-right: 1px solid #999; text-align: center; color: #2e8b57; font-size:12px;">{'0' if saldo == 0 else ''}</td>
-<td style="text-align: center; color: #2e8b57; font-size:12px;">{'0' if saldo == 0 else ''}</td>
+<td style="border-right: 1px solid #999; border-top: 1px solid #ccc; padding: 5px 10px; text-align: center; font-weight: bold; color: #2e8b57; font-size: 15px;">{f"{saldo:,.2f}" if saldo > 0 else ""}</td>
+<td style="border-top: 1px solid #ccc; padding: 5px 10px; text-align: center; font-weight: bold; color: #a32626; font-size: 15px;">{f"{abs(saldo):,.2f}" if saldo < 0 else ""}</td>
+</tr>
+<tr>
+<td style="border-right: 1px solid #999; text-align: center; color: #2e8b57; font-size:13px;">{'0.00' if saldo == 0 else ''}</td>
+<td style="text-align: center; color: #a32626; font-size:13px;">{'0.00' if saldo == 0 else ''}</td>
 </tr>
 </table>
 </div>"""
+                    
+                    with cols[col_idx % 2]:
+                        st.markdown(html_razonete, unsafe_allow_html=True)
+                    col_idx += 1
                 
-                with cols[col_idx % 2]:
-                    st.markdown(html_razonete, unsafe_allow_html=True)
-                col_idx += 1
+                # Adiciona um divisor visual após cada grupo para melhor organização
+                st.divider()
 
         # ----------------------------------------
         # VISUALIZAÇÃO DO BALANCETE
