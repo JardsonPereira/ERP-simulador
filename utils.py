@@ -21,3 +21,14 @@ def check_auth():
     if "user" not in st.session_state:
         st.error("Usuário não autenticado.")
         st.stop()
+
+def inject_css(file_name="style.css"):
+    """
+    Carrega e injeta um arquivo CSS no Streamlit.
+    Certifique-se de ter um arquivo 'style.css' na mesma pasta.
+    """
+    try:
+        with open(file_name, "r") as f:
+            st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+    except FileNotFoundError:
+        st.warning(f"Arquivo CSS '{file_name}' não encontrado.")
