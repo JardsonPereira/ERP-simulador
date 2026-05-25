@@ -1,43 +1,39 @@
 import streamlit as st
-# Importando todas as funções do utils que criamos
-from utils import (
-    get_supabase, 
-    inject_css, 
-    get_data_cached, 
-    resetar_lancamentos, 
-    deletar_lancamento_por_id, 
-    check_auth
-)
+from utils import get_supabase
 
-# 1. Configuração da página
-st.set_page_config(page_title="ERP Simulador", layout="wide")
+# Inicializar Supabase
+supabase = get_supabase()
 
-# 2. Injeta o CSS (agora sem erros, o código verifica se o arquivo existe)
-inject_css("style.css")
+st.title("🔐 Acesso ao Sistema")
 
-# --- SUA INTERFACE COMEÇA AQUI ---
+# Aba de Login e Cadastro
+tab1, tab2 = st.tabs(["Login", "Cadastrar-se"])
 
-def main():
-    st.title("🔐 Login / Cadastro")
-
-    # Exemplo de onde ficaria seu formulário
-    # email = st.text_input("Email")
-    # password = st.text_input("Senha", type="password")
+with tab1:
+    st.subheader("Login")
+    email = st.text_input("Email", key="login_email")
+    password = st.text_input("Senha", type="password", key="login_pass")
     
-    # if st.button("Entrar"):
-    #     # Lógica de autenticação com Supabase
-    #     pass
+    if st.button("Entrar"):
+        try:
+            response = supabase.auth.sign_in_with_password({"email": email, "password": password})
+            if response.user:
+                st.session_state["user"] = response.user
+                st.success("Login efetuado com sucesso!")
+                st.rerun()
+        except Exception as e:
+            st.error(f"Erro no login: {e}")
 
-    # Exemplo de verificação de autenticação (Descomente se já estiver logado)
-    # check_auth()
-
-    # Se precisar buscar dados:
-    if "user" in st.session_state:
-        st.write(f"Olá, {st.session_state['user']['email']}")
-        # dados = get_data_cached("lancamentos", st.session_state["user"]["id"])
-        # st.write(dados)
-
-if __name__ == "__main__":
-    main()
-
-# --- SUA INTERFACE TERMINA AQUI ---
+with tab2:
+    st.subheader("Novo Usuário")
+    email_cad = st.text_input("Email", key="cad_email")
+    password_cad = st.text_input("Senha", type="password", key="cad_pass")
+    
+    if st.button("Criar Conta"):
+        try:
+            # O cadastro no Supabase não escreve diretamente nas suas tabelas,
+            # ele cria um user na auth schema.
+            response = supabase.auth.sign_up({"email": email_cad, "password": password_cad})
+            st.success("Conta criada! Verifique o seu email para confirmar.")
+        except Exception as e:
+            st.error(f"Erro no cadastro: {e}")
