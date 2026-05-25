@@ -1,29 +1,43 @@
 import streamlit as st
-from utils import get_supabase, inject_css
+# Importando todas as funções do utils que criamos
+from utils import (
+    get_supabase, 
+    inject_css, 
+    get_data_cached, 
+    resetar_lancamentos, 
+    deletar_lancamento_por_id, 
+    check_auth
+)
 
-st.set_page_config(page_title="ERP Didático", layout="wide", page_icon="📊")
-inject_css()
-supabase = get_supabase()
+# 1. Configuração da página
+st.set_page_config(page_title="ERP Simulador", layout="wide")
 
-if 'user' not in st.session_state:
+# 2. Injeta o CSS (agora sem erros, o código verifica se o arquivo existe)
+inject_css("style.css")
+
+# --- SUA INTERFACE COMEÇA AQUI ---
+
+def main():
     st.title("🔐 Login / Cadastro")
-    email = st.text_input("Email")
-    password = st.text_input("Senha", type="password")
-    username = st.text_input("Nome de Usuário")
-    col1, col2 = st.columns(2)
+
+    # Exemplo de onde ficaria seu formulário
+    # email = st.text_input("Email")
+    # password = st.text_input("Senha", type="password")
     
-    if col1.button("Cadastrar"):
-        res = supabase.auth.sign_up({"email": email, "password": password})
-        if res.user:
-            supabase.table("profiles").insert({"id": res.user.id, "username": username}).execute()
-            st.success("Conta criada! Faça login.")
-            
-    if col2.button("Entrar"):
-        try:
-            res = supabase.auth.sign_in_with_password({"email": email, "password": password})
-            st.session_state.user = res.user
-            st.rerun()
-        except Exception as e: st.error(f"Falha: {e}")
-else:
-    st.title(f"Bem-vindo, {st.session_state.user.email}")
-    st.write("Selecione uma opção no menu lateral para começar a gerenciar sua empresa.")
+    # if st.button("Entrar"):
+    #     # Lógica de autenticação com Supabase
+    #     pass
+
+    # Exemplo de verificação de autenticação (Descomente se já estiver logado)
+    # check_auth()
+
+    # Se precisar buscar dados:
+    if "user" in st.session_state:
+        st.write(f"Olá, {st.session_state['user']['email']}")
+        # dados = get_data_cached("lancamentos", st.session_state["user"]["id"])
+        # st.write(dados)
+
+if __name__ == "__main__":
+    main()
+
+# --- SUA INTERFACE TERMINA AQUI ---
