@@ -9,7 +9,7 @@ from utils import get_supabase, inject_css, check_auth
 
 st.set_page_config(layout="wide")
 inject_css("style.css")
-
+st.write(f"DEBUG: user_id atual é: {user_id}")
 # Autenticação
 user_id = check_auth()
 supabase = get_supabase()
