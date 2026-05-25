@@ -3,10 +3,11 @@ import pandas as pd
 import sys
 import os
 
-# Adiciona o caminho para importar o utils.py
+# Ajuste de caminho para garantir que importa o utils.py da raiz
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from utils import get_data_cached, get_supabase, inject_css, check_auth
+from utils import get_supabase, inject_css, check_auth
 
+# Configuração da Página
 st.set_page_config(page_title="Lançamentos", layout="wide")
 inject_css("style.css")
 
@@ -16,32 +17,35 @@ supabase = get_supabase()
 
 st.title("💰 Gestão Financeira")
 
-# Criamos Abas para organizar a interface
+# Abas para organizar a interface
 aba1, aba2 = st.tabs(["➕ Novo Lançamento", "📋 Gerenciar Lançamentos"])
 
 # --- ABA 1: NOVO LANÇAMENTO ---
 with aba1:
     st.subheader("Registrar novo movimento")
     
-    # Gestão de Contas (Buscar do Supabase)
-    contas_data = supabase.table("contas").select("*").eq("user_id", user_id).execute().data
-    lista_contas = {c["nome"]: c["id"] for c in contas_data}
+    # Buscar contas existentes de forma segura
+    try:
+        res_contas = supabase.table("contas").select("*").eq("user_id", user_id).execute()
+        contas_data = res_contas.data if res_contas.data else []
+    except:
+        contas_data = []
+    
+    lista_contas = {c.get("nome", "Sem Nome"): c.get("id") for c in contas_data}
     
     col_a, col_b = st.columns([2, 1])
     with col_a:
         nome_conta = st.selectbox("Conta", list(lista_contas.keys()) if lista_contas else ["Nenhuma conta criada"])
     with col_b:
-        nova_conta = st.text_input("Criar nova conta:")
+        nova_conta = st.text_input("Nova conta:")
         if st.button("Adicionar Conta"):
             if nova_conta:
                 supabase.table("contas").insert({"nome": nova_conta, "user_id": user_id}).execute()
                 st.rerun()
 
-    # Formulário de Lançamento
     with st.form("form_lancamento"):
-        c1, c2 = st.columns(2)
-        valor = c1.number_input("Valor (R$)", min_value=0.0, step=0.01)
-        data = c2.date_input("Data")
+        valor = st.number_input("Valor (R$)", min_value=0.0, step=0.01)
+        data = st.date_input("Data")
         op = st.selectbox("Operação", ["CREDITO", "DEBITO"])
         status = st.selectbox("Status", ["PAGO", "PENDENTE"])
         just = st.text_input("Justificativa")
@@ -60,21 +64,26 @@ with aba1:
 
 # --- ABA 2: GERENCIAR LANÇAMENTOS ---
 with aba2:
-    dados = get_data_cached("lancamentos", user_id)
+    # Buscar Lançamentos
+    try:
+        dados = supabase.table("lancamentos").select("*").eq("user_id", user_id).execute().data
+    except:
+        dados = []
+
     if dados:
         df = pd.DataFrame(dados)
+        
+        # LIMPEZA OBRIGATÓRIA PARA O EDITOR (Resolve StreamlitAPIException)
         df_editavel = df[['id', 'operacao', 'valor', 'data_lancamento', 'status_financeiro', 'justificativa']].copy()
         
-        # Editor Editável
+        # Configuração do editor
         edited_df = st.data_editor(
-            df_editavel.set_index('id'), # ID como índice para facilitar edição
+            df_editavel.set_index('id'), 
             use_container_width=True
         )
 
-        col_acao1, col_acao2 = st.columns(2)
-        
-        with col_acao1:
-            if st.button("💾 Salvar Alterações"):
+        if st.button("💾 Salvar Alterações"):
+            with st.spinner("Atualizando banco de dados..."):
                 for id_lanc, row in edited_df.iterrows():
                     supabase.table("lancamentos").update({
                         "valor": float(row["valor"]),
@@ -84,11 +93,5 @@ with aba2:
                     }).eq("id", id_lanc).execute()
                 st.success("Alterações salvas!")
                 st.rerun()
-        
-        with col_acao2:
-            if st.button("🗑️ Resetar Tudo (Apagar Lançamentos)"):
-                if st.checkbox("Confirmar exclusão de TODOS os lançamentos?"):
-                    supabase.table("lancamentos").delete().eq("user_id", user_id).execute()
-                    st.rerun()
     else:
         st.info("Nenhum lançamento encontrado.")
