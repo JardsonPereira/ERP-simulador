@@ -1,55 +1,56 @@
 import streamlit as st
 import pandas as pd
-from utils import get_supabase, get_data_cached, resetar_lancamentos, deletar_lancamento_por_id
+import sys
+import os
 
-st.set_page_config(layout="wide")
-supabase = get_supabase()
-user_id = st.session_state.user.id
+# Ajuste para importar o utils corretamente (caso esteja na raiz)
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from utils import get_data_cached, get_supabase, inject_css, check_auth
 
-st.title("⚖️ Gestão Contábil Profissional")
+st.set_page_config(page_title="Diário de Lançamentos", layout="wide")
+inject_css("style.css")
+check_auth()
 
-# --- Aba de Cadastro ---
-with st.expander("➕ Novo Lançamento Contábil"):
-    with st.form("form_novo", clear_on_submit=True):
-        col1, col2 = st.columns(2)
-        with col1:
-            data = st.date_input("Data do Fato")
-            conta = st.text_input("Nome da Conta")
-            valor = st.number_input("Valor (R$)", min_value=0.0, format="%.2f")
-        with col2:
-            grupo = st.selectbox("Grupo", ["Ativo Circulante", "Ativo Não Circulante", "Passivo Circulante", "Passivo Não Circulante", "Patrimônio Líquido", "Receita", "Despesa", "Encargos Financeiros"])
-            operacao = st.radio("Natureza", ["Débito", "Crédito"])
-            status = st.selectbox("Status", ["Entrada", "Pago", "Pendente", "Investimento", "Transação Interna"])
-        
-        justificativa = st.text_area("Justificativa / Histórico")
-        
-        if st.form_submit_button("Registrar Lançamento"):
-            supabase.table("lancamentos").insert({
-                "user_id": user_id, "data": str(data), "conta": conta, 
-                "grupo": grupo, "operacao": operacao, "valor": valor, 
-                "status": status, "justificativa": justificativa
-            }).execute()
-            st.success("Lançamento efetuado com sucesso!")
-            st.rerun()
+st.title("📊 Diário de Lançamentos")
+st.markdown("Edite os valores diretamente na tabela abaixo e clique em Salvar.")
 
-# --- Gestão e Edição ---
-st.subheader("Diário de Lançamentos")
-df = pd.DataFrame(get_data_cached("lancamentos", user_id))
+user_id = st.session_state["user"]["id"]
+dados = get_data_cached("lancamentos", user_id)
 
-if not df.empty:
-    # Edição Interativa
-    st.info("Dica: Edite os valores diretamente na tabela abaixo.")
-    df_editado = st.data_editor(df, use_container_width=True)
+if dados:
+    df = pd.DataFrame(dados)
     
-    col_a, col_b = st.columns(2)
-    with col_a:
+    # Configuração visual das colunas
+    col_config = {
+        "id": None, # Oculta o ID técnico
+        "user_id": None, 
+        "valor": st.column_config.NumberColumn("Valor (R$)", format="R$ %.2f"),
+        "data_lancamento": st.column_config.DateColumn("Data"),
+    }
+
+    # Tabela editável
+    edited_df = st.data_editor(
+        df, 
+        column_config=col_config, 
+        use_container_width=True,
+        num_rows="dynamic"
+    )
+
+    # Botões de Ação
+    col1, col2 = st.columns([1, 5])
+    with col1:
         if st.button("💾 Salvar Edições"):
-            # Lógica simples: detectar alterações linha a linha (requer backend adicional)
-            st.warning("Funcionalidade de salvamento em lote em implementação.")
-    with col_b:
-        if st.button("🔥 Resetar Todos os Dados", type="primary"):
-            if st.checkbox("Confirmar reset total?"):
-                resetar_lancamentos(user_id)
+            with st.spinner("Salvando..."):
+                supabase = get_supabase()
+                # Atualiza cada linha modificada no Supabase
+                for index, row in edited_df.iterrows():
+                    supabase.table("lancamentos").update({
+                        "valor": row["valor"],
+                        "operacao": row["operacao"],
+                        "status_financeiro": row["status_financeiro"],
+                        "justificativa": row["justificativa"]
+                    }).eq("id", row["id"]).execute()
+                st.success("Alterações salvas!")
                 st.rerun()
 else:
-    st.write("Nenhum lançamento encontrado.")
+    st.info("Nenhum lançamento encontrado.")
