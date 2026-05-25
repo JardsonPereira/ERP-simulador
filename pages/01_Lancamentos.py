@@ -21,7 +21,6 @@ LISTA_GRUPOS = [
     "Patrimônio Líquido", "Despesas", 
     "Encargos Financeiros", "Receita"
 ]
-
 LISTA_STATUS = ["PAGO", "PENDENTE", "ENTRADA", "INVESTIMENTO", "TRANSAÇÃO INTERNA"]
 
 st.title("💰 Gestão Financeira")
@@ -74,22 +73,24 @@ with aba1:
                 "status_financeiro": status,
                 "justificativa": just
             }).execute()
-            st.success("Lançamento salvo com sucesso!")
+            st.success("Lançamento salvo!")
             st.rerun()
 
 with aba2:
     if lancamentos_data:
         df = pd.DataFrame(lancamentos_data)
         
-        if 'grupo' not in df.columns:
-            df['grupo'] = None
-            
-        cols = ['id', 'grupo', 'operacao', 'valor', 'data_lancamento', 'status_financeiro', 'justificativa']
-        df_editavel = df[[c for c in cols if c in df.columns]].copy()
+        # Cria a coluna de exclusão
+        df['Excluir'] = False 
+        
+        # Ordena colunas para que a exclusão fique no início
+        cols = ['Excluir', 'grupo', 'operacao', 'valor', 'data_lancamento', 'status_financeiro', 'justificativa']
+        df_exibicao = df[[c for c in cols if c in df.columns]]
         
         edited_df = st.data_editor(
-            df_editavel.set_index('id'),
+            df_exibicao.set_index('id'),
             column_config={
+                "Excluir": st.column_config.CheckboxColumn("Excluir", help="Marque para deletar este item"),
                 "grupo": st.column_config.SelectboxColumn("Grupo", options=LISTA_GRUPOS),
                 "status_financeiro": st.column_config.SelectboxColumn("Status", options=LISTA_STATUS),
                 "operacao": st.column_config.SelectboxColumn("Operação", options=["CREDITO", "DEBITO"]),
@@ -98,16 +99,29 @@ with aba2:
             use_container_width=True
         )
 
-        if st.button("💾 Salvar Alterações"):
+        if st.button("💾 Salvar Alterações e Processar Exclusões"):
             for id_lanc, row in edited_df.iterrows():
-                supabase.table("lancamentos").update({
-                    "grupo": row["grupo"],
-                    "valor": float(row["valor"]),
-                    "operacao": row["operacao"],
-                    "status_financeiro": row["status_financeiro"],
-                    "justificativa": row["justificativa"]
-                }).eq("id", id_lanc).execute()
-            st.success("Alterações salvas!")
+                if row['Excluir']:
+                    # Excluir item
+                    supabase.table("lancamentos").delete().eq("id", id_lanc).execute()
+                else:
+                    # Atualizar item
+                    supabase.table("lancamentos").update({
+                        "grupo": row["grupo"],
+                        "valor": float(row["valor"]),
+                        "operacao": row["operacao"],
+                        "status_financeiro": row["status_financeiro"],
+                        "justificativa": row["justificativa"]
+                    }).eq("id", id_lanc).execute()
+            st.success("Operação concluída com sucesso!")
             st.rerun()
+
+        st.divider()
+        with st.expander("⚠️ Zona de Perigo: Excluir TODOS os Lançamentos"):
+            st.warning("Esta ação apagará permanentemente todos os seus lançamentos. Não há volta.")
+            if st.button("CONFIRMAR EXCLUSÃO TOTAL"):
+                supabase.table("lancamentos").delete().eq("user_id", user_id).execute()
+                st.success("Todos os lançamentos foram apagados.")
+                st.rerun()
     else:
         st.info("Nenhum lançamento encontrado.")
