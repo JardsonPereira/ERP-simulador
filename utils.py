@@ -12,15 +12,31 @@ def get_data_cached(tabela, user_id):
 
 def check_auth():
     """
-    Verifica se o usuário está logado de forma segura.
-    Retorna o ID do usuário se estiver tudo ok, ou para o script se não estiver.
+    Verifica se o usuário está logado e retorna o ID de forma segura,
+    independentemente de ser um dicionário ou um objeto Supabase.
     """
+    # 1. Verifica se a chave 'user' existe
     if "user" not in st.session_state or st.session_state["user"] is None:
         st.error("Usuário não autenticado.")
         st.stop()
     
-    # Retorna o ID de forma segura
-    return st.session_state["user"].get("id")
+    user = st.session_state["user"]
+    user_id = None
+
+    # 2. Tenta extrair o ID dependendo do tipo de objeto
+    if isinstance(user, dict):
+        # Se for um dicionário, usa .get()
+        user_id = user.get("id")
+    else:
+        # Se for um objeto (caso do Supabase/Pydantic), usa o atributo .id
+        user_id = getattr(user, "id", None)
+
+    # 3. Validação final
+    if not user_id:
+        st.error("Erro: Não foi possível obter o ID do usuário (sessão inválida).")
+        st.stop()
+        
+    return user_id
 
 def inject_css(file_name="style.css"):
     if os.path.exists(file_name):
