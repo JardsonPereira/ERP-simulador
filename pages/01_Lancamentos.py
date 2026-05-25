@@ -3,26 +3,28 @@ import os
 import streamlit as st
 import pandas as pd
 
-# 1. Ajuste de caminho absoluto (Obrigatório para evitar ImportError)
+# Ajuste de caminho absoluto (MANTIDO)
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from utils import get_supabase, inject_css, check_auth
+from utils import get_supabase, inject_css, check_auth, show_sidebar
 
 st.set_page_config(layout="wide")
 inject_css("style.css")
 
-# Autenticação
+# Autenticação e inicialização (MANTIDO)
 user_id = check_auth()
 supabase = get_supabase()
 
-# Constantes
+# ADIÇÃO DO MENU LATERAL (NOVA ATUALIZAÇÃO)
+show_sidebar(supabase)
+
+# Constantes (MANTIDO)
 LISTA_GRUPOS = ["Ativo Circulante", "Ativo Não Circulante", "Passivo Circulante", "Passivo Não Circulante", "Patrimônio Líquido", "Despesas", "Encargos Financeiros", "Receita"]
 LISTA_STATUS = ["PAGO", "PENDENTE", "ENTRADA", "INVESTIMENTO", "TRANSAÇÃO INTERNA"]
 
-# 2. Inicialização segura de variáveis (Resolve o NameError)
+# Inicialização segura (MANTIDO)
 contas_data = []
 lancamentos_data = []
 
-# Busca de Dados
 try:
     contas_res = supabase.table("contas").select("*").eq("user_id", user_id).execute()
     lanc_res = supabase.table("lancamentos").select("*").eq("user_id", user_id).execute()
@@ -33,6 +35,7 @@ except Exception as e:
 
 st.title("💰 Gestão Financeira")
 
+# Abas (MANTIDO)
 aba1, aba2 = st.tabs(["➕ Novo Lançamento", "📋 Gerenciar Lançamentos"])
 
 with aba1:
