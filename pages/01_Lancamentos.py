@@ -1,3 +1,11 @@
+import streamlit as st
+
+# Proteção de página: redireciona se não estiver logado
+if 'logged_in' not in st.session_state or not st.session_state.logged_in:
+    st.warning("Acesso não autorizado. Por favor, faça o login.")
+    st.stop()  # Impede que o restante do código seja carregado
+
+# --- Seu código existente da página começa aqui ---
 import sys
 import os
 import streamlit as st
