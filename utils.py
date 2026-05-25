@@ -6,7 +6,7 @@ def get_supabase():
     return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
 
 def check_auth():
-    # Verifica se a sessão existe
+    # Verifica autenticação de forma segura
     if "user" not in st.session_state or st.session_state["user"] is None:
         st.error("Usuário não autenticado.")
         st.stop()
