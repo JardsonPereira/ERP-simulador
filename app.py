@@ -1,36 +1,59 @@
 import streamlit as st
 from supabase import create_client
 
-# Inicialize o cliente do Supabase
-url = st.secrets["SUPABASE_URL"]
-key = st.secrets["SUPABASE_KEY"]
-supabase = create_client(url, key)
+# Configurações do Supabase (use os dados do seu painel)
+# Dica: Coloque essas chaves no arquivo .streamlit/secrets.toml
+SUPABASE_URL="https://ejdvfuczdnpyhuosruey.supabase.co"
+SUPABASE_KEY="sb_publishable_6x5uVjXcIh4KnlpQSFOv_g_P6rnEw08"
 
-def cadastrar_usuario(email, senha):
-    # O Supabase cria o usuário na tabela auth.users automaticamente
-    try:
-        response = supabase.auth.sign_up({
-            "email": email,
-            "password": senha
-        })
-        return response
-    except Exception as e:
-        return e
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-def login_usuario(email, senha):
-    try:
-        response = supabase.auth.sign_in_with_password({
-            "email": email,
-            "password": senha
-        })
-        return response
-    except Exception as e:
-        return e
+# Configuração da página
+st.set_page_config(page_title="Sistema Contabil", layout="wide")
 
-# --- No seu formulário ---
-with tab2: # Aba de Cadastro
-    email = st.text_input("E-mail")
-    senha = st.text_input("Senha", type="password")
-    if st.button("Cadastrar"):
-        res = cadastrar_usuario(email, senha)
-        st.success("Verifique seu e-mail para confirmar o cadastro!")
+# Inicializa estado
+if 'logged_in' not in st.session_state:
+    st.session_state.logged_in = False
+
+def login_page():
+    # Oculta o menu lateral no login
+    st.markdown("""<style>[data-testid="stSidebar"] {display: none;}</style>""", unsafe_allow_html=True)
+    
+    st.title("Acesso ao Sistema")
+    tab1, tab2 = st.tabs(["Login", "Cadastrar"])
+    
+    with tab1:
+        email = st.text_input("E-mail")
+        senha = st.text_input("Senha", type="password")
+        if st.button("Entrar"):
+            try:
+                response = supabase.auth.sign_in_with_password({"email": email, "password": senha})
+                st.session_state.logged_in = True
+                st.session_state.user = response.user.email
+                st.rerun()
+            except Exception as e:
+                st.error("Erro no login: Verifique e-mail e senha.")
+
+    with tab2:
+        novo_email = st.text_input("Novo E-mail")
+        nova_senha = st.text_input("Nova Senha", type="password")
+        if st.button("Cadastrar"):
+            try:
+                supabase.auth.sign_up({"email": novo_email, "password": nova_senha})
+                st.success("Cadastro realizado! O Trigger do banco irá criar seu perfil automaticamente.")
+            except Exception as e:
+                st.error("Erro no cadastro.")
+
+def main():
+    if not st.session_state.logged_in:
+        login_page()
+    else:
+        st.sidebar.title("Menu Principal")
+        st.write(f"Bem-vindo, {st.session_state.user}!")
+        if st.sidebar.button("Sair"):
+            supabase.auth.sign_out()
+            st.session_state.logged_in = False
+            st.rerun()
+
+if __name__ == "__main__":
+    main()
