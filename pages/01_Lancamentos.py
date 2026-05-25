@@ -3,41 +3,36 @@ import pandas as pd
 import sys
 import os
 
-# 1. Ajuste do caminho para importar o utils.py da pasta raiz
+# Ajuste de caminho para importar o utils da raiz
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from utils import get_data_cached, get_supabase, inject_css, check_auth
 
-# 2. Configurações Iniciais da Página
+# 1. Configurações Iniciais
 st.set_page_config(page_title="Diário de Lançamentos", layout="wide")
 inject_css("style.css")
 
-# 3. VERIFICAÇÃO DE AUTENTICAÇÃO (Deve vir antes de qualquer acesso a st.session_state)
-check_auth()
-
-# Agora que passámos pelo check_auth, é seguro aceder ao user_id
-user_id = st.session_state["user"]["id"]
+# 2. Autenticação Segura (Retorna o ID e para a execução se falhar)
+user_id = check_auth()
 
 st.title("📊 Diário de Lançamentos")
-st.markdown("Edite os valores na tabela abaixo e clique em **Salvar Edições**.")
 
-# 4. Obtenção de dados
+# 3. Carregamento de Dados
 dados = get_data_cached("lancamentos", user_id)
 
-# Variável para armazenar o editor
+# 4. Inicialização do Editor (Fora do bloco de botão para evitar erros)
 edited_df = None
 
 if dados:
     df = pd.DataFrame(dados)
     
-    # Configuração visual das colunas
     col_config = {
-        "id": None, # Oculta IDs técnicos
+        "id": None, 
         "user_id": None, 
         "valor": st.column_config.NumberColumn("Valor (R$)", format="R$ %.2f"),
         "data_lancamento": st.column_config.DateColumn("Data"),
     }
 
-    # Renderiza o editor
+    # O editor sempre existe, independentemente de clicar no botão ou não
     edited_df = st.data_editor(
         df, 
         column_config=col_config, 
@@ -47,13 +42,13 @@ if dados:
 else:
     st.info("Nenhum lançamento encontrado.")
 
-# 5. Lógica de Salvamento
+# 5. Botão de Salvar
 if st.button("💾 Salvar Edições"):
     if edited_df is not None:
-        with st.spinner("A guardar alterações..."):
+        with st.spinner("Salvando alterações no Supabase..."):
             supabase = get_supabase()
             
-            # Percorre o dataframe editado e atualiza no Supabase
+            # Atualiza cada linha no banco
             for index, row in edited_df.iterrows():
                 supabase.table("lancamentos").update({
                     "valor": row["valor"],
@@ -63,6 +58,6 @@ if st.button("💾 Salvar Edições"):
                 }).eq("id", row["id"]).execute()
                 
             st.success("Alterações salvas com sucesso!")
-            st.rerun() # Recarrega a página para atualizar os dados
+            st.rerun() 
     else:
-        st.warning("Não existem dados para salvar.")
+        st.warning("Não há dados para salvar.")
