@@ -3,30 +3,38 @@ import pandas as pd
 import sys
 import os
 
-# Caminho para importar o utils (MANTIDO)
+# Adiciona a raiz ao caminho para o Python achar o utils.py
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from utils import get_supabase, inject_css, check_auth
 
 st.set_page_config(layout="wide")
 inject_css("style.css")
 
-# Autenticação (MANTIDO)
+# Autenticação (devolve o ID do usuário)
 user_id = check_auth()
 supabase = get_supabase()
 
 st.title("💰 Gestão Financeira")
 
-# Abas (MANTIDO)
+# --- BUSCA CENTRALIZADA ---
+# Buscamos contas e lançamentos apenas uma vez
+try:
+    contas_res = supabase.table("contas").select("*").eq("user_id", user_id).execute()
+    lanc_res = supabase.table("lancamentos").select("*").eq("user_id", user_id).execute()
+    
+    contas_data = contas_res.data if contas_res.data else []
+    lancamentos_data = lanc_res.data if lanc_res.data else []
+except Exception as e:
+    st.error(f"Erro ao conectar com Supabase: {e}")
+    contas_data, lancamentos_data = [], []
+
+# --- ABAS ---
 aba1, aba2 = st.tabs(["➕ Novo Lançamento", "📋 Gerenciar Lançamentos"])
 
 with aba1:
-    # Busca contas (MANTIDO - com tratamento de erro)
-    try:
-        contas_res = supabase.table("contas").select("*").eq("user_id", user_id).execute()
-        contas_data = contas_res.data if contas_res.data else []
-    except:
-        contas_data = []
+    st.subheader("Registrar novo movimento")
     
+    # Criar lista de contas
     lista_contas = {c.get("nome", "Sem Nome"): c.get("id") for c in contas_data}
     
     col_a, col_b = st.columns([2, 1])
@@ -35,8 +43,9 @@ with aba1:
     with col_b:
         nova_conta = st.text_input("Nova conta:")
         if st.button("Adicionar Conta"):
-            supabase.table("contas").insert({"nome": nova_conta, "user_id": user_id}).execute()
-            st.rerun()
+            if nova_conta:
+                supabase.table("contas").insert({"nome": nova_conta, "user_id": user_id}).execute()
+                st.rerun()
 
     with st.form("form_lanc"):
         valor = st.number_input("Valor", min_value=0.0, step=0.01)
@@ -59,22 +68,19 @@ with aba1:
             st.rerun()
 
 with aba2:
-    # Busca lançamentos (MANTIDO)
-    try:
-        dados = supabase.table("lancamentos").select("*").eq("user_id", user_id).execute().data
-    except:
-        dados = []
-    
-    if dados:
-        df = pd.DataFrame(dados)
-        cols = ['id', 'operacao', 'valor', 'data_lancamento', 'status_financeiro', 'justificativa']
-        df_editavel = df[[c for c in cols if c in df.columns]].copy()
+    if lancamentos_data:
+        df = pd.DataFrame(lancamentos_data)
+        
+        # Filtra apenas colunas que existem no seu banco
+        colunas_desejadas = ['id', 'operacao', 'valor', 'data_lancamento', 'status_financeiro', 'justificativa']
+        df_editavel = df[[c for c in colunas_desejadas if c in df.columns]].copy()
         
         edited_df = st.data_editor(
             df_editavel.set_index('id'),
             column_config={
                 "status_financeiro": st.column_config.SelectboxColumn("Status", options=["PAGO", "PENDENTE"]),
-                "operacao": st.column_config.SelectboxColumn("Operação", options=["CREDITO", "DEBITO"])
+                "operacao": st.column_config.SelectboxColumn("Operação", options=["CREDITO", "DEBITO"]),
+                "valor": st.column_config.NumberColumn("Valor (R$)", format="R$ %.2f")
             },
             use_container_width=True
         )
