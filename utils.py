@@ -6,15 +6,11 @@ def get_supabase():
     return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
 
 def check_auth():
-    # Verifica autenticação de forma segura
     if "user" not in st.session_state or st.session_state["user"] is None:
         st.error("Usuário não autenticado.")
         st.stop()
-    
     user = st.session_state["user"]
-    # Tenta obter o ID tanto se for dicionário quanto objeto
     user_id = getattr(user, "id", None) or (user.get("id") if isinstance(user, dict) else None)
-    
     if not user_id:
         st.error("Erro na sessão.")
         st.stop()
