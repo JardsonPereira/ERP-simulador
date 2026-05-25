@@ -3,77 +3,91 @@ import pandas as pd
 import sys
 import os
 
-# Ajuste de caminho (isso faz o Python achar o utils.py que está na pasta raiz)
+# Caminho para importar o utils (MANTIDO)
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from utils import get_supabase, inject_css, check_auth
 
 st.set_page_config(layout="wide")
 inject_css("style.css")
 
+# Autenticação (MANTIDO)
 user_id = check_auth()
 supabase = get_supabase()
 
 st.title("💰 Gestão Financeira")
 
-# --- BUSCA DE CONTAS E DADOS ---
-# Buscamos as contas do banco de dados do usuário logado
-try:
-    contas_res = supabase.table("contas").select("*").eq("user_id", user_id).execute()
-    contas_data = contas_res.data if contas_res.data else []
-except:
-    contas_data = []
-
-# Criamos um mapa para facilitar: { "Nome da Conta": "ID_DA_CONTA" }
-lista_contas = {c.get("nome", "Sem Nome"): c.get("id") for c in contas_data}
-
-# --- ABAS ---
+# Abas (MANTIDO)
 aba1, aba2 = st.tabs(["➕ Novo Lançamento", "📋 Gerenciar Lançamentos"])
 
 with aba1:
-    st.subheader("Registrar novo movimento")
+    # Busca contas (MANTIDO - com tratamento de erro)
+    try:
+        contas_res = supabase.table("contas").select("*").eq("user_id", user_id).execute()
+        contas_data = contas_res.data if contas_res.data else []
+    except:
+        contas_data = []
     
-    # Exibe o seletor de contas
+    lista_contas = {c.get("nome", "Sem Nome"): c.get("id") for c in contas_data}
+    
     col_a, col_b = st.columns([2, 1])
     with col_a:
-        # Se não houver contas, avisamos o usuário
-        if lista_contas:
-            nome_conta_selecionada = st.selectbox("Selecione a Conta", list(lista_contas.keys()))
-        else:
-            st.warning("Nenhuma conta encontrada. Crie uma ao lado.")
-            nome_conta_selecionada = None
-            
+        nome_conta = st.selectbox("Conta", list(lista_contas.keys()) if lista_contas else ["Crie uma conta"])
     with col_b:
-        nova_conta = st.text_input("Criar nova conta:")
+        nova_conta = st.text_input("Nova conta:")
         if st.button("Adicionar Conta"):
-            if nova_conta:
-                supabase.table("contas").insert({"nome": nova_conta, "user_id": user_id}).execute()
-                st.rerun() # Atualiza para mostrar a nova conta na lista
+            supabase.table("contas").insert({"nome": nova_conta, "user_id": user_id}).execute()
+            st.rerun()
 
-    # Formulário de Lançamento
-    with st.form("form_lancamento"):
-        valor = st.number_input("Valor (R$)", min_value=0.0, step=0.01)
+    with st.form("form_lanc"):
+        valor = st.number_input("Valor", min_value=0.0, step=0.01)
         data = st.date_input("Data")
         op = st.selectbox("Operação", ["CREDITO", "DEBITO"])
         status = st.selectbox("Status", ["PAGO", "PENDENTE"])
         just = st.text_input("Justificativa")
         
-        if st.form_submit_button("Salvar Lançamento"):
-            if not nome_conta_selecionada:
-                st.error("Por favor, selecione ou crie uma conta primeiro.")
-            else:
-                # Pegamos o ID real baseado no nome selecionado
-                conta_id = lista_contas.get(nome_conta_selecionada)
-                
-                supabase.table("lancamentos").insert({
-                    "user_id": user_id,
-                    "conta_id": conta_id, # Enviamos o ID correto
-                    "valor": valor,
-                    "data_lancamento": str(data),
-                    "operacao": op,
-                    "status_financeiro": status,
-                    "justificativa": just
-                }).execute()
-                st.success("Lançamento salvo com sucesso!")
+        if st.form_submit_button("Salvar"):
+            supabase.table("lancamentos").insert({
+                "user_id": user_id,
+                "conta_id": lista_contas.get(nome_conta),
+                "valor": valor,
+                "data_lancamento": str(data),
+                "operacao": op,
+                "status_financeiro": status,
+                "justificativa": just
+            }).execute()
+            st.success("Salvo!")
+            st.rerun()
 
 with aba2:
-    st.write("Aqui viria a lista de lançamentos (use o mesmo df_editavel dos exemplos anteriores).")
+    # Busca lançamentos (MANTIDO)
+    try:
+        dados = supabase.table("lancamentos").select("*").eq("user_id", user_id).execute().data
+    except:
+        dados = []
+    
+    if dados:
+        df = pd.DataFrame(dados)
+        cols = ['id', 'operacao', 'valor', 'data_lancamento', 'status_financeiro', 'justificativa']
+        df_editavel = df[[c for c in cols if c in df.columns]].copy()
+        
+        edited_df = st.data_editor(
+            df_editavel.set_index('id'),
+            column_config={
+                "status_financeiro": st.column_config.SelectboxColumn("Status", options=["PAGO", "PENDENTE"]),
+                "operacao": st.column_config.SelectboxColumn("Operação", options=["CREDITO", "DEBITO"])
+            },
+            use_container_width=True
+        )
+
+        if st.button("💾 Salvar Alterações"):
+            for id_lanc, row in edited_df.iterrows():
+                supabase.table("lancamentos").update({
+                    "valor": float(row["valor"]),
+                    "operacao": row["operacao"],
+                    "status_financeiro": row["status_financeiro"],
+                    "justificativa": row["justificativa"]
+                }).eq("id", id_lanc).execute()
+            st.success("Alterações salvas!")
+            st.rerun()
+    else:
+        st.info("Nenhum lançamento encontrado.")
