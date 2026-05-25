@@ -1,69 +1,55 @@
 import streamlit as st
+from supabase import create_client
+from datetime import date
 
-# Proteção de página: redireciona se não estiver logado
-if 'logged_in' not in st.session_state or not st.session_state.logged_in:
-    st.warning("Acesso não autorizado. Por favor, faça o login.")
-    st.stop()  # Impede que o restante do código seja carregado
+# Configuração Supabase (deve ser a mesma do app.py)
+url = st.secrets["SUPABASE_URL"]
+key = st.secrets["SUPABASE_KEY"]
+supabase = create_client(url, key)
 
-# --- Seu código existente da página começa aqui ---
-import sys
-import os
-import streamlit as st
-import pandas as pd
+st.title("Lançamentos Financeiros")
 
-# Caminho para garantir que o utils seja encontrado
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from utils import get_supabase, show_auth_sidebar, check_auth
+# 1. SEGURANÇA: Verificar se o usuário está logado
+if 'user' not in st.session_state or not st.session_state.user:
+    st.error("Acesso não autorizado. Por favor, faça login.")
+    st.stop()
 
-st.set_page_config(layout="wide")
+user_id = supabase.auth.get_user().user.id
 
-# Inicialização
-user = check_auth()
-user_id = user.id if hasattr(user, 'id') else user.get('id')
-supabase = get_supabase()
+# 2. FORMULÁRIO DE LANÇAMENTO
+with st.form("lancamento_form"):
+    col1, col2 = st.columns(2)
+    with col1:
+        data = st.date_input("Data", date.today())
+        valor = st.number_input("Valor", min_value=0.0, format="%.2f")
+    with col2:
+        tipo = st.selectbox("Tipo", ["Receita", "Despesa"])
+        descricao = st.text_input("Descrição")
+    
+    submit = st.form_submit_button("Salvar Lançamento")
 
-# Exibir Menu Lateral (Logout/Usuário)
-show_auth_sidebar(supabase)
+    if submit:
+        # Envio para o Supabase
+        dados = {
+            "user_id": user_id,
+            "data": str(data),
+            "descricao": descricao,
+            "valor": valor,
+            "tipo": tipo
+        }
+        try:
+            supabase.table("lancamentos").insert(dados).execute()
+            st.success("Lançamento salvo com sucesso!")
+        except Exception as e:
+            st.error(f"Erro ao salvar: {e}")
 
-st.title("💰 Gestão Financeira")
-
-# Buscar dados (Sem filtros complexos, agora que o RLS está desligado)
+# 3. LISTAGEM DOS LANÇAMENTOS
+st.subheader("Últimos Lançamentos")
 try:
-    contas_data = supabase.table("contas").select("*").execute().data or []
-    lancamentos_data = supabase.table("lancamentos").select("*").execute().data or []
+    response = supabase.table("lancamentos").select("*").eq("user_id", user_id).order("data", desc=True).execute()
+    if response.data:
+        st.table(response.data)
+    else:
+        st.info("Nenhum lançamento encontrado.")
 except Exception as e:
     st.error(f"Erro ao carregar dados: {e}")
-
-aba1, aba2 = st.tabs(["➕ Novo Lançamento", "📋 Gerenciar Lançamentos"])
-
-with aba1:
-    # Criar Conta
-    nova_conta = st.text_input("Nome da nova conta:")
-    if st.button("➕ Criar Conta"):
-        if nova_conta:
-            supabase.table("contas").insert({"nome": nova_conta, "user_id": user_id}).execute()
-            st.rerun()
-    
-    # Novo Lançamento
-    lista_contas = {c.get("nome"): c.get("id") for c in contas_data}
-    with st.form("lanc_form"):
-        conta_sel = st.selectbox("Conta", list(lista_contas.keys()) if lista_contas else ["Crie uma conta"])
-        valor = st.number_input("Valor", min_value=0.0)
-        grupo = st.selectbox("Grupo", ["Despesas", "Receita", "Investimento"])
-        status = st.selectbox("Status", ["PAGO", "PENDENTE"])
-        
-        if st.form_submit_button("Salvar"):
-            supabase.table("lancamentos").insert({
-                "user_id": user_id, 
-                "conta_id": lista_contas.get(conta_sel), 
-                "valor": valor, 
-                "grupo": grupo, 
-                "status_financeiro": status
-            }).execute()
-            st.success("Salvo!")
-            st.rerun()
-
-with aba2:
-    if lancamentos_data:
-        df = pd.DataFrame(lancamentos_data)
-        st.dataframe(df, use_container_width=True)
