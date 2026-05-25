@@ -1,11 +1,11 @@
 import streamlit as st
 from supabase import create_client
 
-# Configurações
-url = "https://ejdvfuczdnpyhuosruey.supabase.co"
-key = "sb_publishable_6x5uVjXcIh4KnlpQSFOv_g_P6rnEw08"
-supabase = create_client(url, key)
-
+# --- CONFIGURAÇÃO MANUAL (Substitua pelos seus dados) ---
+SUPABASE_URL = "https://ejdvfuczdnpyhuosruey.supabase.co"
+SUPABASE_KEY = "sb_publishable_6x5uVjXcIh4KnlpQSFOv_g_P6rnEw08"
+# Inicializa o cliente do Supabase
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 st.title("Lançamentos Financeiros")
 
 # --- RECUPERAÇÃO ROBUSTA DA SESSÃO ---
