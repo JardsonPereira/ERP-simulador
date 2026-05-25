@@ -1,37 +1,41 @@
-import sys
-import os
 import streamlit as st
 import pandas as pd
+import sys
+import os
 
-# Importação correta
+# Caminho absoluto para a raiz
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from utils import get_supabase, inject_css, check_auth
 
 st.set_page_config(layout="wide")
 inject_css("style.css")
 
+# Autenticação
 user_id = check_auth()
 supabase = get_supabase()
 
 st.title("💰 Gestão Financeira")
 
-# Busca de Dados Segura
+# --- INICIALIZAÇÃO SEGURA (Isso resolve o NameError) ---
+contas_data = []
+lancamentos_data = []
+
+# --- BUSCA DE DADOS ---
 try:
     contas_res = supabase.table("contas").select("*").eq("user_id", user_id).execute()
     lanc_res = supabase.table("lancamentos").select("*").eq("user_id", user_id).execute()
     
     contas_data = contas_res.data if contas_res.data else []
-    lancamentos_data = lanc_res.data if lancamentos_data.data else [] # Corrigido aqui
+    lancamentos_data = lanc_res.data if lanc_res.data else []
 except Exception as e:
     st.error(f"Erro ao carregar dados: {e}")
-    contas_data, lancamentos_data = [], []
 
-# Mapeamento de contas (Seguro)
-lista_contas = {c.get("nome", "Sem Nome"): c.get("id") for c in contas_data}
-
+# --- ABAS ---
 aba1, aba2 = st.tabs(["➕ Novo Lançamento", "📋 Gerenciar Lançamentos"])
 
 with aba1:
+    lista_contas = {c.get("nome", "Sem Nome"): c.get("id") for c in contas_data}
+    
     col_a, col_b = st.columns([2, 1])
     with col_a:
         nome_conta = st.selectbox("Conta", list(lista_contas.keys()) if lista_contas else ["Crie uma conta"])
@@ -65,7 +69,7 @@ with aba1:
 with aba2:
     if lancamentos_data:
         df = pd.DataFrame(lancamentos_data)
-        # Filtra colunas
+        # Filtra colunas que existem no banco
         cols = ['id', 'operacao', 'valor', 'data_lancamento', 'status_financeiro', 'justificativa']
         df_editavel = df[[c for c in cols if c in df.columns]].copy()
         
@@ -73,7 +77,8 @@ with aba2:
             df_editavel.set_index('id'),
             column_config={
                 "status_financeiro": st.column_config.SelectboxColumn("Status", options=["PAGO", "PENDENTE"]),
-                "operacao": st.column_config.SelectboxColumn("Operação", options=["CREDITO", "DEBITO"])
+                "operacao": st.column_config.SelectboxColumn("Operação", options=["CREDITO", "DEBITO"]),
+                "valor": st.column_config.NumberColumn("Valor (R$)", format="R$ %.2f")
             },
             use_container_width=True
         )
