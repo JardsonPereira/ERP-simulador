@@ -3,52 +3,36 @@ import pandas as pd
 import sys
 import os
 
-# 1. Configuração e Autenticação
+# 1. Configura o caminho para achar o utils.py na pasta raiz
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from utils import get_supabase, inject_css, check_auth
 
-st.set_page_config(page_title="Gestão Financeira", layout="wide")
+st.set_page_config(layout="wide")
 inject_css("style.css")
 
+# 2. Autenticação (Isso retorna o ID do usuário de forma segura)
 user_id = check_auth()
 supabase = get_supabase()
 
-# 2. BUSCA GLOBAL DE DADOS (Executada uma única vez no início)
-def carregar_dados():
-    try:
-        res_lanc = supabase.table("lancamentos").select("*").eq("user_id", user_id).execute()
-        res_contas = supabase.table("contas").select("*").eq("user_id", user_id).execute()
-        return pd.DataFrame(res_lanc.data) if res_lanc.data else pd.DataFrame(), res_contas.data
-    except Exception as e:
-        st.error(f"Erro ao conectar com banco: {e}")
-        return pd.DataFrame(), []
-
-df_lancamentos, contas_data = carregar_dados()
-
 st.title("💰 Gestão Financeira")
 
-# 3. CRIAÇÃO DAS ABAS
-aba0, aba1, aba2 = st.tabs(["📊 Resumo", "➕ Novo Lançamento", "📋 Gerenciar Lançamentos"])
+# 3. Busca de dados centralizada (usa try-except para evitar quebra)
+try:
+    lanc_res = supabase.table("lancamentos").select("*").eq("user_id", user_id).execute()
+    contas_res = supabase.table("contas").select("*").eq("user_id", user_id).execute()
+    
+    df_lancamentos = pd.DataFrame(lanc_res.data) if lanc_res.data else pd.DataFrame()
+    contas_data = contas_res.data if contas_res.data else []
+except Exception as e:
+    st.error(f"Erro ao carregar dados: {e}")
+    df_lancamentos = pd.DataFrame()
+    contas_data = []
 
-# --- ABA 0: RESUMO (Reflete os dados puxados) ---
-with aba0:
-    st.subheader("Resumo Geral")
-    if not df_lancamentos.empty:
-        # Exemplo: Calcula total de créditos e débitos
-        total_cred = df_lancamentos[df_lancamentos['operacao'] == 'CREDITO']['valor'].sum()
-        total_deb = df_lancamentos[df_lancamentos['operacao'] == 'DEBITO']['valor'].sum()
-        
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Total Entradas", f"R$ {total_cred:.2f}")
-        c2.metric("Total Saídas", f"R$ {total_deb:.2f}")
-        c3.metric("Saldo", f"R$ {total_cred - total_deb:.2f}")
-        
-        st.dataframe(df_lancamentos, use_container_width=True)
-    else:
-        st.info("Nenhum dado para resumir.")
+# 4. Abas
+aba1, aba2 = st.tabs(["➕ Novo Lançamento", "📋 Gerenciar Lançamentos"])
 
-# --- ABA 1: NOVO LANÇAMENTO ---
 with aba1:
+    # Acesso seguro via .get()
     lista_contas = {c.get("nome", "Sem Nome"): c.get("id") for c in contas_data}
     
     col_a, col_b = st.columns([2, 1])
@@ -78,21 +62,20 @@ with aba1:
                 "justificativa": just
             }).execute()
             st.success("Salvo!")
-            st.rerun() # Recarrega para refletir na Aba 0 e 2
+            st.rerun()
 
-# --- ABA 2: GERENCIAR LANÇAMENTOS ---
 with aba2:
     if not df_lancamentos.empty:
-        # Prepara colunas para edição
-        colunas = ['id', 'operacao', 'valor', 'data_lancamento', 'status_financeiro', 'justificativa']
-        df_editavel = df_lancamentos[colunas].copy()
+        # Colunas existentes no seu Supabase
+        cols = ['id', 'operacao', 'valor', 'data_lancamento', 'status_financeiro', 'justificativa']
+        # Filtra apenas colunas que existem no DataFrame
+        df_editavel = df_lancamentos[[c for c in cols if c in df_lancamentos.columns]].copy()
         
         edited_df = st.data_editor(
             df_editavel.set_index('id'),
             column_config={
                 "status_financeiro": st.column_config.SelectboxColumn("Status", options=["PAGO", "PENDENTE"]),
-                "operacao": st.column_config.SelectboxColumn("Operação", options=["CREDITO", "DEBITO"]),
-                "valor": st.column_config.NumberColumn("Valor (R$)", format="R$ %.2f")
+                "operacao": st.column_config.SelectboxColumn("Operação", options=["CREDITO", "DEBITO"])
             },
             use_container_width=True
         )
