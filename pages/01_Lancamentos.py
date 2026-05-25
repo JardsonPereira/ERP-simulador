@@ -14,13 +14,20 @@ inject_css("style.css")
 user_id = check_auth()
 supabase = get_supabase()
 
+# Lista de Grupos
+LISTA_GRUPOS = [
+    "Ativo Circulante", "Ativo Não Circulante", 
+    "Passivo Circulante", "Passivo Não Circulante", 
+    "Patrimônio Líquido", "Despesas", 
+    "Encargos Financeiros", "Receita"
+]
+
 st.title("💰 Gestão Financeira")
 
-# --- INICIALIZAÇÃO SEGURA (Isso resolve o NameError) ---
+# --- BUSCA DE DADOS ---
 contas_data = []
 lancamentos_data = []
 
-# --- BUSCA DE DADOS ---
 try:
     contas_res = supabase.table("contas").select("*").eq("user_id", user_id).execute()
     lanc_res = supabase.table("lancamentos").select("*").eq("user_id", user_id).execute()
@@ -47,7 +54,10 @@ with aba1:
                 st.rerun()
 
     with st.form("form_lanc"):
-        valor = st.number_input("Valor", min_value=0.0, step=0.01)
+        # Novo campo de Grupo
+        grupo = st.selectbox("Grupo Contábil", LISTA_GRUPOS)
+        
+        valor = st.number_input("Valor (R$)", min_value=0.0, step=0.01)
         data = st.date_input("Data")
         op = st.selectbox("Operação", ["CREDITO", "DEBITO"])
         status = st.selectbox("Status", ["PAGO", "PENDENTE"])
@@ -57,25 +67,31 @@ with aba1:
             supabase.table("lancamentos").insert({
                 "user_id": user_id,
                 "conta_id": lista_contas.get(nome_conta),
+                "grupo": grupo, # Gravando o grupo
                 "valor": valor,
                 "data_lancamento": str(data),
                 "operacao": op,
                 "status_financeiro": status,
                 "justificativa": just
             }).execute()
-            st.success("Salvo!")
+            st.success("Lançamento salvo com sucesso!")
             st.rerun()
 
 with aba2:
     if lancamentos_data:
         df = pd.DataFrame(lancamentos_data)
-        # Filtra colunas que existem no banco
-        cols = ['id', 'operacao', 'valor', 'data_lancamento', 'status_financeiro', 'justificativa']
+        
+        # Garantir que a coluna 'grupo' exista no DataFrame, mesmo se vazia
+        if 'grupo' not in df.columns:
+            df['grupo'] = None
+            
+        cols = ['id', 'grupo', 'operacao', 'valor', 'data_lancamento', 'status_financeiro', 'justificativa']
         df_editavel = df[[c for c in cols if c in df.columns]].copy()
         
         edited_df = st.data_editor(
             df_editavel.set_index('id'),
             column_config={
+                "grupo": st.column_config.SelectboxColumn("Grupo", options=LISTA_GRUPOS),
                 "status_financeiro": st.column_config.SelectboxColumn("Status", options=["PAGO", "PENDENTE"]),
                 "operacao": st.column_config.SelectboxColumn("Operação", options=["CREDITO", "DEBITO"]),
                 "valor": st.column_config.NumberColumn("Valor (R$)", format="R$ %.2f")
@@ -86,6 +102,7 @@ with aba2:
         if st.button("💾 Salvar Alterações"):
             for id_lanc, row in edited_df.iterrows():
                 supabase.table("lancamentos").update({
+                    "grupo": row["grupo"], # Atualizando o grupo
                     "valor": float(row["valor"]),
                     "operacao": row["operacao"],
                     "status_financeiro": row["status_financeiro"],
