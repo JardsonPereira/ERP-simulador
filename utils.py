@@ -1,6 +1,8 @@
 import streamlit as st
+import os
 from supabase import create_client
 
+# --- Funções existentes ---
 def get_supabase():
     return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
 
@@ -23,12 +25,17 @@ def check_auth():
         st.stop()
 
 def inject_css(file_name="style.css"):
-    """
-    Carrega e injeta um arquivo CSS no Streamlit.
-    Certifique-se de ter um arquivo 'style.css' na mesma pasta.
-    """
-    try:
+    # Verifica se o arquivo existe para não mostrar erro na tela
+    if os.path.exists(file_name):
         with open(file_name, "r") as f:
             st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
-    except FileNotFoundError:
-        st.warning(f"Arquivo CSS '{file_name}' não encontrado.")
+
+# --- Nova função que estava faltando ---
+def gerar_relatorio_pdf(data):
+    """
+    Placeholder para a função de gerar PDF.
+    Implemente a lógica de geração de PDF aqui futuramente.
+    """
+    # Exemplo de aviso para não quebrar o código enquanto você implementa
+    st.warning("A função 'gerar_relatorio_pdf' ainda não foi implementada.")
+    return None
