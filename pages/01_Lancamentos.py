@@ -3,24 +3,26 @@ import os
 import streamlit as st
 import pandas as pd
 
-# 1. IMPORTAÇÃO CORRETA (Isso resolve o ImportError)
+# 1. Ajuste de caminho absoluto (Obrigatório para evitar ImportError)
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from utils import get_supabase, inject_css, check_auth
 
 st.set_page_config(layout="wide")
 inject_css("style.css")
 
-# 2. AUTENTICAÇÃO E INICIALIZAÇÃO DE VARIÁVEIS (Resolve o NameError)
+# Autenticação
 user_id = check_auth()
 supabase = get_supabase()
 
+# Constantes
 LISTA_GRUPOS = ["Ativo Circulante", "Ativo Não Circulante", "Passivo Circulante", "Passivo Não Circulante", "Patrimônio Líquido", "Despesas", "Encargos Financeiros", "Receita"]
 LISTA_STATUS = ["PAGO", "PENDENTE", "ENTRADA", "INVESTIMENTO", "TRANSAÇÃO INTERNA"]
 
-# Inicializar vazios para evitar NameError
+# 2. Inicialização segura de variáveis (Resolve o NameError)
 contas_data = []
 lancamentos_data = []
 
+# Busca de Dados
 try:
     contas_res = supabase.table("contas").select("*").eq("user_id", user_id).execute()
     lanc_res = supabase.table("lancamentos").select("*").eq("user_id", user_id).execute()
@@ -35,20 +37,17 @@ aba1, aba2 = st.tabs(["➕ Novo Lançamento", "📋 Gerenciar Lançamentos"])
 
 with aba1:
     st.subheader("Configuração de Conta")
-    col_c1, col_c2 = st.columns([2, 1])
-    with col_c1:
-        nova_conta = st.text_input("Nome da nova conta:")
-    with col_c2:
-        if st.button("➕ Criar Conta"):
-            if nova_conta:
-                supabase.table("contas").insert({"nome": nova_conta, "user_id": user_id}).execute()
-                st.rerun()
+    nova_conta = st.text_input("Nome da nova conta:")
+    if st.button("➕ Criar Conta"):
+        if nova_conta:
+            supabase.table("contas").insert({"nome": nova_conta, "user_id": user_id}).execute()
+            st.rerun()
 
     st.subheader("Registrar novo movimento")
     lista_contas = {c.get("nome", "Sem Nome"): c.get("id") for c in contas_data}
     
     with st.form("form_lanc"):
-        nome_conta = st.selectbox("Conta", list(lista_contas.keys()) if lista_contas else ["Crie uma conta"])
+        nome_conta = st.selectbox("Escolha a Conta", list(lista_contas.keys()) if lista_contas else ["Crie uma conta"])
         grupo = st.selectbox("Grupo Contábil", LISTA_GRUPOS)
         valor = st.number_input("Valor (R$)", min_value=0.0, step=0.01)
         data = st.date_input("Data")
@@ -77,7 +76,7 @@ with aba2:
         cols = ['Excluir', 'grupo', 'operacao', 'valor', 'data_lancamento', 'status_financeiro', 'justificativa']
         df_exibicao = df[[c for c in cols if c in df.columns]]
         
-        edited_df = st.data_editor(df_exibicao.set_index('id'), column_config={"Excluir": st.column_config.CheckboxColumn("Excluir"), "grupo": st.column_config.SelectboxColumn("Grupo", options=LISTA_GRUPOS), "status_financeiro": st.column_config.SelectboxColumn("Status", options=LISTA_STATUS)}, use_container_width=True)
+        edited_df = st.data_editor(df_exibicao.set_index('id'), column_config={"Excluir": st.column_config.CheckboxColumn("Excluir"), "grupo": st.column_config.SelectboxColumn("Grupo", options=LISTA_GRUPOS), "status_financeiro": st.column_config.SelectboxColumn("Status", options=LISTA_STATUS), "operacao": st.column_config.SelectboxColumn("Operação", options=["CREDITO", "DEBITO"]), "valor": st.column_config.NumberColumn("Valor (R$)", format="R$ %.2f")}, use_container_width=True)
 
         if st.button("💾 Salvar Alterações"):
             for id_lanc, row in edited_df.iterrows():
