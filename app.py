@@ -1,3 +1,8 @@
+import os
+import sqlite3
+
+# Adicione isso logo abaixo dos seus imports
+print(f"O banco de dados está sendo lido em: {os.path.abspath('usuarios.db')}")
 import streamlit as st
 import sqlite3
 import os
