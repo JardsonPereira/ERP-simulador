@@ -1,33 +1,26 @@
 import streamlit as st
-from utils import get_supabase
+from auth import login_form, register_form
 
-supabase = get_supabase()
+# Inicializa o estado de login
+if 'logged_in' not in st.session_state:
+    st.session_state.logged_in = False
+if 'page' not in st.session_state:
+    st.session_state.page = "login"
 
-st.title("🔐 Acesso ao Sistema")
+def main():
+    if not st.session_state.logged_in:
+        if st.session_state.page == "login":
+            login_form()
+        elif st.session_state.page == "register":
+            register_form()
+    else:
+        # Se estiver logado, exibe o menu principal
+        st.sidebar.title("Menu Principal")
+        st.write("Bem-vindo ao sistema!")
+        if st.sidebar.button("Sair"):
+            st.session_state.logged_in = False
+            st.rerun()
+        # Aqui o Streamlit gerencia as páginas da pasta /pages automaticamente
 
-if "user" in st.session_state and st.session_state["user"]:
-    st.switch_page("pages/01_Lancamentos.py")
-
-tab1, tab2 = st.tabs(["Login", "Cadastrar-se"])
-
-with tab1:
-    email = st.text_input("Email", key="l_email")
-    password = st.text_input("Senha", type="password", key="l_pass")
-    if st.button("Entrar"):
-        try:
-            res = supabase.auth.sign_in_with_password({"email": email, "password": password})
-            if res.user:
-                st.session_state["user"] = res.user
-                st.switch_page("pages/01_Lancamentos.py")
-        except:
-            st.error("Credenciais inválidas.")
-
-with tab2:
-    email_c = st.text_input("Email", key="c_email")
-    password_c = st.text_input("Senha", type="password", key="c_pass")
-    if st.button("Criar Conta"):
-        try:
-            supabase.auth.sign_up({"email": email_c, "password": password_c})
-            st.success("Conta criada! Verifique seu e-mail.")
-        except Exception as e:
-            st.error(str(e))
+if __name__ == "__main__":
+    main()
