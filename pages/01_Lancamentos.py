@@ -14,13 +14,15 @@ inject_css("style.css")
 user_id = check_auth()
 supabase = get_supabase()
 
-# Lista de Grupos
+# Constantes de Opções
 LISTA_GRUPOS = [
     "Ativo Circulante", "Ativo Não Circulante", 
     "Passivo Circulante", "Passivo Não Circulante", 
     "Patrimônio Líquido", "Despesas", 
     "Encargos Financeiros", "Receita"
 ]
+
+LISTA_STATUS = ["PAGO", "PENDENTE", "ENTRADA", "INVESTIMENTO", "TRANSAÇÃO INTERNA"]
 
 st.title("💰 Gestão Financeira")
 
@@ -54,20 +56,18 @@ with aba1:
                 st.rerun()
 
     with st.form("form_lanc"):
-        # Novo campo de Grupo
         grupo = st.selectbox("Grupo Contábil", LISTA_GRUPOS)
-        
         valor = st.number_input("Valor (R$)", min_value=0.0, step=0.01)
         data = st.date_input("Data")
         op = st.selectbox("Operação", ["CREDITO", "DEBITO"])
-        status = st.selectbox("Status", ["PAGO", "PENDENTE"])
+        status = st.selectbox("Status", LISTA_STATUS)
         just = st.text_input("Justificativa")
         
         if st.form_submit_button("Salvar"):
             supabase.table("lancamentos").insert({
                 "user_id": user_id,
                 "conta_id": lista_contas.get(nome_conta),
-                "grupo": grupo, # Gravando o grupo
+                "grupo": grupo,
                 "valor": valor,
                 "data_lancamento": str(data),
                 "operacao": op,
@@ -81,7 +81,6 @@ with aba2:
     if lancamentos_data:
         df = pd.DataFrame(lancamentos_data)
         
-        # Garantir que a coluna 'grupo' exista no DataFrame, mesmo se vazia
         if 'grupo' not in df.columns:
             df['grupo'] = None
             
@@ -92,7 +91,7 @@ with aba2:
             df_editavel.set_index('id'),
             column_config={
                 "grupo": st.column_config.SelectboxColumn("Grupo", options=LISTA_GRUPOS),
-                "status_financeiro": st.column_config.SelectboxColumn("Status", options=["PAGO", "PENDENTE"]),
+                "status_financeiro": st.column_config.SelectboxColumn("Status", options=LISTA_STATUS),
                 "operacao": st.column_config.SelectboxColumn("Operação", options=["CREDITO", "DEBITO"]),
                 "valor": st.column_config.NumberColumn("Valor (R$)", format="R$ %.2f")
             },
@@ -102,7 +101,7 @@ with aba2:
         if st.button("💾 Salvar Alterações"):
             for id_lanc, row in edited_df.iterrows():
                 supabase.table("lancamentos").update({
-                    "grupo": row["grupo"], # Atualizando o grupo
+                    "grupo": row["grupo"],
                     "valor": float(row["valor"]),
                     "operacao": row["operacao"],
                     "status_financeiro": row["status_financeiro"],
