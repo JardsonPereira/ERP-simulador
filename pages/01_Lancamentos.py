@@ -3,23 +3,27 @@ import pandas as pd
 import sys
 import os
 
-# Adiciona o diretório pai ao caminho do sistema para importar o utils.py
+# 1. Ajuste do caminho para importar o utils.py da pasta raiz
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from utils import get_data_cached, get_supabase, inject_css, check_auth
 
-# Configuração da Página
+# 2. Configurações Iniciais da Página
 st.set_page_config(page_title="Diário de Lançamentos", layout="wide")
 inject_css("style.css")
+
+# 3. VERIFICAÇÃO DE AUTENTICAÇÃO (Deve vir antes de qualquer acesso a st.session_state)
 check_auth()
 
-st.title("📊 Diário de Lançamentos")
-st.markdown("Edite os valores na tabela e clique em 'Salvar Edições'.")
-
-# Obter dados
+# Agora que passámos pelo check_auth, é seguro aceder ao user_id
 user_id = st.session_state["user"]["id"]
+
+st.title("📊 Diário de Lançamentos")
+st.markdown("Edite os valores na tabela abaixo e clique em **Salvar Edições**.")
+
+# 4. Obtenção de dados
 dados = get_data_cached("lancamentos", user_id)
 
-# Variável inicializada como None para evitar erros
+# Variável para armazenar o editor
 edited_df = None
 
 if dados:
@@ -33,7 +37,7 @@ if dados:
         "data_lancamento": st.column_config.DateColumn("Data"),
     }
 
-    # O st.data_editor é chamado AQUI, fora do botão, para a variável existir sempre
+    # Renderiza o editor
     edited_df = st.data_editor(
         df, 
         column_config=col_config, 
@@ -43,10 +47,10 @@ if dados:
 else:
     st.info("Nenhum lançamento encontrado.")
 
-# Botão de Ação - Agora usa a variável edited_df que já foi definida acima
+# 5. Lógica de Salvamento
 if st.button("💾 Salvar Edições"):
     if edited_df is not None:
-        with st.spinner("Salvando alterações..."):
+        with st.spinner("A guardar alterações..."):
             supabase = get_supabase()
             
             # Percorre o dataframe editado e atualiza no Supabase
@@ -59,6 +63,6 @@ if st.button("💾 Salvar Edições"):
                 }).eq("id", row["id"]).execute()
                 
             st.success("Alterações salvas com sucesso!")
-            st.rerun() # Recarrega a página para refletir as mudanças
+            st.rerun() # Recarrega a página para atualizar os dados
     else:
         st.warning("Não existem dados para salvar.")
