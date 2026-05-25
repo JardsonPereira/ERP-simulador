@@ -1,26 +1,44 @@
 import streamlit as st
-from auth import login_form, register_form
+
+# Configuração da página
+st.set_page_config(page_title="Sistema Contabil", layout="wide")
 
 # Inicializa o estado de login
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
-if 'page' not in st.session_state:
-    st.session_state.page = "login"
 
-def main():
-    if not st.session_state.logged_in:
-        if st.session_state.page == "login":
-            login_form()
-        elif st.session_state.page == "register":
-            register_form()
-    else:
-        # Se estiver logado, exibe o menu principal
-        st.sidebar.title("Menu Principal")
-        st.write("Bem-vindo ao sistema!")
-        if st.sidebar.button("Sair"):
-            st.session_state.logged_in = False
+def login_page():
+    # CSS para ocultar a sidebar apenas quando não estiver logado
+    st.markdown("""
+        <style>
+        [data-testid="stSidebar"] {
+            display: none;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+    
+    st.title("Login")
+    username = st.text_input("Usuário")
+    password = st.text_input("Senha", type="password")
+    
+    if st.button("Entrar"):
+        # Lógica de autenticação (substitua pela sua verificação real)
+        if username == "admin" and password == "123":
+            st.session_state.logged_in = True
             st.rerun()
-        # Aqui o Streamlit gerencia as páginas da pasta /pages automaticamente
+        else:
+            st.error("Usuário ou senha incorretos")
 
-if __name__ == "__main__":
-    main()
+def main_menu():
+    st.title("Bem-vindo ao ContabilApp")
+    st.write("Use o menu lateral para acessar os módulos.")
+    
+    if st.button("Sair"):
+        st.session_state.logged_in = False
+        st.rerun()
+
+# Lógica de exibição
+if not st.session_state.logged_in:
+    login_page()
+else:
+    main_menu()
