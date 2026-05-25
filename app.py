@@ -45,15 +45,16 @@ def login_page():
                 st.error("Erro no cadastro.")
 
 def main():
-    if not st.session_state.logged_in:
+    if not st.session_state.get('logged_in', False):
         login_page()
     else:
         st.sidebar.title("Menu Principal")
-        st.write(f"Bem-vindo, {st.session_state.user}!")
+        # Usamos .get() para evitar o erro AttributeError
+        usuario_atual = st.session_state.get('user', 'Usuário')
+        st.write(f"Bem-vindo, {usuario_atual}!")
+        
         if st.sidebar.button("Sair"):
             supabase.auth.sign_out()
             st.session_state.logged_in = False
+            st.session_state.user = None
             st.rerun()
-
-if __name__ == "__main__":
-    main()
