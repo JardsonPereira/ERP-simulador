@@ -7,17 +7,15 @@ def get_supabase():
 
 def check_auth():
     if "user" not in st.session_state or st.session_state["user"] is None:
-        st.error("Usuário não autenticado.")
+        # Se não estiver logado, redireciona para a página principal (Login)
+        st.switch_page("app.py")
         st.stop()
-    user = st.session_state["user"]
-    user_id = getattr(user, "id", None) or (user.get("id") if isinstance(user, dict) else None)
-    return user_id
+    return st.session_state["user"]
 
-def show_sidebar(supabase):
+def show_auth_sidebar(supabase):
     """Exibe o usuário logado e o botão de logout na barra lateral."""
     if "user" in st.session_state and st.session_state["user"]:
         user = st.session_state["user"]
-        # Tenta pegar o email (seja objeto ou dicionário)
         email = getattr(user, 'email', None) or (user.get('email') if isinstance(user, dict) else "Usuário")
         
         st.sidebar.markdown("---")
@@ -27,6 +25,7 @@ def show_sidebar(supabase):
         if st.sidebar.button("🚪 Deslogar"):
             supabase.auth.sign_out()
             st.session_state["user"] = None
+            st.switch_page("app.py") # Volta para a tela de login
             st.rerun()
 
 def inject_css(file_name="style.css"):
