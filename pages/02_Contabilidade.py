@@ -13,7 +13,6 @@ check_auth()
 supabase = get_supabase()
 show_auth_sidebar(supabase)
 
-# Verifica se há um usuário autenticado
 user = st.session_state.get('user')
 if not user:
     st.warning("Usuário não autenticado.")
@@ -38,7 +37,6 @@ def classificar_conta(grupo):
     return '8. Outros'
 
 if user_id:
-    # Busca os dados
     res_lanc = supabase.table("lancamentos").select("*").eq("user_id", user_id).execute()
     res_contas = supabase.table("contas").select("*").eq("user_id", user_id).execute()
 
@@ -46,16 +44,12 @@ if user_id:
         df_l = pd.DataFrame(res_lanc.data)
         df_c = pd.DataFrame(res_contas.data)
         
-        # Merge seguro
         df = df_l.merge(df_c, left_on='conta_id', right_on='id', suffixes=('_lanc', '_conta'))
-        
-        # Unificação da coluna grupo
         df['grupo'] = df.get('grupo_lanc', df.get('grupo_conta', 'Outros'))
         
         df['data_lancamento'] = pd.to_datetime(df['data_lancamento'])
         df['valor'] = pd.to_numeric(df['valor'], errors='coerce')
         
-        # Filtro de Data
         st.markdown("---")
         c1, c2 = st.columns(2)
         d_inicio = c1.date_input("Data Início", value=df['data_lancamento'].min().date())
@@ -101,57 +95,58 @@ if user_id:
         # --- TAB 2: BALANCETE (FORMATO CONTÁBIL) ---
         with tab2:
             st.subheader("Balancete de Verificação")
-            
-            # Pivot table para consolidar movimentos
             pivot = df_p.pivot_table(index='nome_conta', columns='operacao', values='valor', aggfunc='sum', fill_value=0)
-            
-            # Garantir colunas
             if 'Débito' not in pivot.columns: pivot['Débito'] = 0
             if 'Crédito' not in pivot.columns: pivot['Crédito'] = 0
             
-            # Cálculo de Saldo Devedor/Credor
             pivot['Saldo Devedor'] = pivot.apply(lambda x: x['Débito'] - x['Crédito'] if x['Débito'] > x['Crédito'] else 0, axis=1)
             pivot['Saldo Credor'] = pivot.apply(lambda x: x['Crédito'] - x['Débito'] if x['Crédito'] > x['Débito'] else 0, axis=1)
             
-            # Métricas Totais
             col1, col2, col3 = st.columns(3)
             col1.metric("Total Débito", f"R$ {pivot['Débito'].sum():,.2f}")
             col2.metric("Total Crédito", f"R$ {pivot['Crédito'].sum():,.2f}")
             col3.metric("Dif. Saldo", f"R$ {(pivot['Saldo Devedor'].sum() - pivot['Saldo Credor'].sum()):,.2f}")
             
-            # Exibição Formatada
             display_cols = ['Débito', 'Crédito', 'Saldo Devedor', 'Saldo Credor']
-            pivot_display = pivot[display_cols].copy()
-            for col in display_cols:
-                pivot_display[col] = pivot_display[col].apply(lambda x: f"R$ {x:,.2f}")
-            
+            pivot_display = pivot[display_cols].applymap(lambda x: f"R$ {x:,.2f}")
             st.dataframe(pivot_display, use_container_width=True)
-            
-            if abs(pivot['Débito'].sum() - pivot['Crédito'].sum()) < 0.01:
-                st.success("✅ Balancete equilibrado: Débitos e Créditos conferem.")
-            else:
-                st.error("⚠️ Balancete desequilibrado! Verifique os lançamentos.")
 
         # --- TAB 3: BALANÇO PATRIMONIAL ---
         with tab3:
-            st.subheader("Balanço Patrimonial (Ativo = Passivo + PL)")
+            st.subheader("Balanço Patrimonial (Saldos das Contas)")
             
-            ativo = df_p[df_p['Categoria'].isin(['1. Ativo Circulante', '2. Ativo Não Circulante'])]['valor'].sum()
-            passivo = df_p[df_p['Categoria'].isin(['3. Passivo Circulante', '4. Passivo Não Circulante'])]['valor'].sum()
-            pl = df_p[df_p['Categoria'] == '5. Patrimônio Líquido']['valor'].sum()
+            # 1. Agrupa por conta para ter o saldo final (Razonete)
+            df_contas = df_p.groupby(['nome_conta', 'Categoria', 'operacao'])['valor'].sum().unstack(fill_value=0)
+            df_contas['Saldo_Net'] = df_contas.get('Débito', 0) - df_contas.get('Crédito', 0)
+
+            # 2. Ajuste de natureza: Ativo (Saldo positivo = Devedor), Passivo/PL (Saldo negativo = Credor)
+            def calcular_valor_balanco(row):
+                cat = row.name[1] 
+                s = row['Saldo_Net']
+                if 'Ativo' in cat: return s
+                if 'Passivo' in cat or 'Patrimônio' in cat: return -s # Inverte sinal para representar crédito
+                return 0
+
+            df_contas['Valor_Balanço'] = df_contas.apply(calcular_valor_balanco, axis=1)
+            
+            # 3. Agrupa os valores finais por categoria
+            df_balanco = df_contas.reset_index().groupby('Categoria')['Valor_Balanço'].sum()
+            
+            ativo = df_balanco[df_balanco.index.str.contains('Ativo')].sum()
+            passivo_pl = df_balanco[df_balanco.index.str.contains('Passivo|Patrimônio')].sum()
             
             c_left, c_right = st.columns(2)
             with c_left:
                 st.metric("Total Ativo", f"R$ {ativo:,.2f}")
-                st.dataframe(df_p[df_p['Categoria'].str.contains('Ativo')].groupby('Categoria')['valor'].sum(), use_container_width=True)
+                st.dataframe(df_balanco[df_balanco.index.str.contains('Ativo')], use_container_width=True)
             with c_right:
-                st.metric("Total Passivo + PL", f"R$ {(passivo + pl):,.2f}")
-                st.dataframe(df_p[df_p['Categoria'].str.contains('Passivo|Patrimônio')].groupby('Categoria')['valor'].sum(), use_container_width=True)
+                st.metric("Total Passivo + PL", f"R$ {passivo_pl:,.2f}")
+                st.dataframe(df_balanco[df_balanco.index.str.contains('Passivo|Patrimônio')], use_container_width=True)
             
-            if abs(ativo - (passivo + pl)) < 0.01:
+            if abs(ativo - passivo_pl) < 0.01:
                 st.success("✅ Balanço Equilibrado!")
             else:
-                st.error(f"⚠️ Balanço Desequilibrado: Diferença de R$ {(ativo - (passivo + pl)):,.2f}")
+                st.error(f"⚠️ Balanço Desequilibrado: Diferença de R$ {(ativo - passivo_pl):,.2f}")
 
     else:
         st.info("Nenhum lançamento encontrado no período.")
