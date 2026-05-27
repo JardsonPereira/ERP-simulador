@@ -32,8 +32,7 @@ with st.form("lancamento_form", clear_on_submit=True):
     with col1:
         data_input = st.date_input("Data do Lançamento", date.today())
         
-        # AQUI: Retornamos ao campo de número simples. Sem listas confusas!
-        conta_id = st.number_input("ID da Conta", min_value=1, step=1)
+        # O campo 'ID da Conta' foi completamente removido daqui!
         
         valor = st.number_input("Valor (R$)", min_value=0.01, format="%.2f")
         
@@ -56,10 +55,9 @@ with st.form("lancamento_form", clear_on_submit=True):
         elif not user_id:
             st.error("Sessão inválida. Faça login novamente.")
         else:
-            # Montando os dados para enviar ao banco de dados
+            # Montando os dados para enviar ao banco de dados sem o conta_id
             dados = {
                 "user_id": user_id,
-                "conta_id": conta_id,  # Envia o número que você digitar diretamente
                 "operacao": operacao,
                 "valor": valor if status in ["Entrada", "Investimento"] else -valor,
                 "data_lancamento": str(data_input),
@@ -84,13 +82,14 @@ if user_id:
         response = supabase.table("lancamentos").select("*").eq("user_id", user_id).order("data_lancamento", desc=True).execute()
         
         if response.data:
-            # Mostra a tabela e oculta apenas as colunas de ID internas que não importam na visualização
+            # Mostra a tabela limpa
             st.dataframe(
                 response.data, 
                 use_container_width=True,
                 column_config={
                     "id": None,          
                     "user_id": None,     
+                    "conta_id": None, # Mantemos oculto na tabela caso exista no banco
                     "justificativa": st.column_config.TextColumn("Nome do Lançamento", width="large")
                 }
             )
