@@ -28,24 +28,27 @@ def classificar_conta(grupo):
     return '8. Outros'
 
 if user_id:
+    # Busca os dados do banco
     res_lanc = supabase.table("lancamentos").select("*").eq("user_id", user_id).execute()
     res_contas = supabase.table("contas").select("*").eq("user_id", user_id).execute()
 
     if res_lanc.data and res_contas.data:
         df = pd.DataFrame(res_lanc.data).merge(pd.DataFrame(res_contas.data), left_on='conta_id', right_on='id', suffixes=('_lanc', '_conta'))
         df['data_lancamento'] = pd.to_datetime(df['data_lancamento'])
-        if 'grupo' not in df.columns:
-            df['grupo'] = df['grupo_lanc'] if 'grupo_lanc' in df.columns else df.get('grupo_conta', 'Outros')
         
+        # Filtro de Data
+        st.markdown("---")
         c1, c2 = st.columns(2)
         d_inicio = c1.date_input("Data Início", value=df['data_lancamento'].min().date())
         d_fim = c2.date_input("Data Fim", value=df['data_lancamento'].max().date())
+        
         df_p = df[(df['data_lancamento'].dt.date >= d_inicio) & (df['data_lancamento'].dt.date <= d_fim)].copy()
         df_p['valor'] = df_p['valor'].abs()
         df_p['Categoria'] = df_p['grupo'].apply(classificar_conta)
 
         tab1, tab2, tab3 = st.tabs(["Razonetes (T)", "Balancete", "Balanço Patrimonial"])
         
+        # --- TAB 1: RAZONETES (Visualização de cards) ---
         with tab1:
             for cat in sorted(df_p['Categoria'].unique()):
                 st.subheader(f"📁 {cat}")
@@ -62,21 +65,21 @@ if user_id:
                                 saldo_final = abs(t_deb - t_cre)
                                 tipo_saldo = "Devedor" if t_deb >= t_cre else "Credor"
                                 
-                                # Gerar lista itemizada (Valor + Justificativa abaixo)
+                                # Lista de Justificativas
                                 deb_list = "".join([f"<div style='margin-bottom:8px;'><b>{r.valor:,.2f}</b><br><small style='color:#666;'>{r.justificativa}</small></div>" for _, r in d_c[d_c['operacao'] == 'Débito'].iterrows()])
                                 cre_list = "".join([f"<div style='margin-bottom:8px;'><b>{r.valor:,.2f}</b><br><small style='color:#666;'>{r.justificativa}</small></div>" for _, r in d_c[d_c['operacao'] == 'Crédito'].iterrows()])
                                 
                                 st.markdown(f"""
-                                    <div style="border: 1px solid #ddd; padding: 10px; border-radius: 5px; background: #fafafa;">
+                                    <div style="border: 1px solid #ddd; padding: 10px; border-radius: 5px; background: #fafafa; margin-bottom: 10px;">
                                         <div style="text-align: center; font-weight: bold;">{conta}</div>
                                         <div style="border-top: 2px solid #333; margin: 5px 0;"></div>
                                         <div style="display: flex; border-left: 2px solid #333; min-height: 100px;">
                                             <div style="flex: 1; text-align: left; padding: 5px; border-right: 1px solid #ddd;">
-                                                <div style="color: #2e7d32; margin-bottom: 5px;"><b>DÉBITOS</b></div>
+                                                <div style="color: #2e7d32; margin-bottom: 5px; font-size: 0.8em;"><b>DÉBITOS</b></div>
                                                 {deb_list}
                                             </div>
                                             <div style="flex: 1; text-align: right; padding: 5px;">
-                                                <div style="color: #c62828; margin-bottom: 5px;"><b>CRÉDITOS</b></div>
+                                                <div style="color: #c62828; margin-bottom: 5px; font-size: 0.8em;"><b>CRÉDITOS</b></div>
                                                 {cre_list}
                                             </div>
                                         </div>
@@ -86,6 +89,7 @@ if user_id:
                                     </div>
                                 """, unsafe_allow_html=True)
 
+        # --- TAB 2: BALANCETE (Usa st.dataframe para estabilidade) ---
         with tab2:
             st.markdown("### Balancete de Verificação")
             pivot = df_p.pivot_table(index='nome_conta', columns='operacao', values='valor', aggfunc='sum', fill_value=0)
@@ -95,8 +99,21 @@ if user_id:
             pivot['Saldo Devedor'] = (pivot['Débito'] - pivot['Crédito']).clip(lower=0)
             pivot['Saldo Credor'] = (pivot['Crédito'] - pivot['Débito']).clip(lower=0)
             pivot.loc['TOTAIS'] = pivot.sum()
-            st.dataframe(pivot.style.format("R$ {:,.2f}"), use_container_width=True)
+            
+            df_display = pivot.reset_index().rename(columns={'nome_conta': 'Conta'})
+            
+            st.dataframe(
+                df_display.style.format({
+                    'Débito': 'R$ {:,.2f}', 
+                    'Crédito': 'R$ {:,.2f}', 
+                    'Saldo Devedor': 'R$ {:,.2f}', 
+                    'Saldo Credor': 'R$ {:,.2f}'
+                }),
+                use_container_width=True,
+                hide_index=True
+            )
 
+        # --- TAB 3: BALANÇO ---
         with tab3:
             df_bal = df_p.groupby(['Categoria', 'nome_conta']).apply(lambda x: x[x['operacao'] == 'Débito']['valor'].sum() - x[x['operacao'] == 'Crédito']['valor'].sum()).reset_index(name='Saldo')
             resultado_exercicio = (df_bal[df_bal['Categoria'] == '6. Receitas']['Saldo'].sum() * -1) - df_bal[df_bal['Categoria'] == '7. Despesas']['Saldo'].sum()
