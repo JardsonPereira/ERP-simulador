@@ -15,7 +15,6 @@ show_auth_sidebar(supabase)
 user_id = getattr(user, 'id', None) or (user.get('id') if isinstance(user, dict) else None)
 
 # --- OPÇÕES DO GRUPO CONTÁBIL ---
-# Lista atualizada sem "Ativo" e "Passivo" genéricos
 opcoes_grupo = [
     "Ativo Circulante", 
     "Ativo Não Circulante", 
@@ -37,7 +36,6 @@ dicionario_contas = {}
 
 if user_id:
     try:
-        # Busca as contas na tabela 'contas' para popular a lista
         resposta_contas = supabase.table("contas").select("id, nome_conta").eq("user_id", user_id).execute()
         if resposta_contas.data:
             for conta in resposta_contas.data:
@@ -51,7 +49,6 @@ if user_id:
 with st.form("lancamento_form", clear_on_submit=True):
     st.subheader("📝 Criar Novo Lançamento")
     
-    # --- SEÇÃO DE SELEÇÃO OU CRIAÇÃO DE CONTA ---
     col_conta1, col_conta2 = st.columns(2)
     with col_conta1:
         conta_escolhida = st.selectbox("Selecione uma Conta", lista_para_selectbox)
@@ -59,7 +56,6 @@ with st.form("lancamento_form", clear_on_submit=True):
         nova_conta_nome = st.text_input("OU Digite para CRIAR uma Nova Conta", placeholder="Ex: Banco Inter, Caixa")
     st.markdown("---")
 
-    # --- RESTANTE DO FORMULÁRIO ---
     col1, col2 = st.columns(2)
     with col1:
         data_input = st.date_input("Data do Lançamento", date.today())
@@ -83,9 +79,7 @@ with st.form("lancamento_form", clear_on_submit=True):
             st.error("Sessão inválida. Faça login novamente.")
         else:
             id_real_da_conta = None
-            
             try:
-                # 1. Se digitou uma nova conta, cria ela no banco primeiro
                 if nova_conta_nome.strip():
                     dados_nova_conta = {
                         "user_id": user_id,
@@ -93,16 +87,12 @@ with st.form("lancamento_form", clear_on_submit=True):
                         "grupo": grupo
                     }
                     resultado_conta = supabase.table("contas").insert(dados_nova_conta).execute()
-                    
                     if resultado_conta.data:
                         id_real_da_conta = resultado_conta.data[0]["id"]
                         st.info(f"Nova conta '{nova_conta_nome}' criada com sucesso!")
-                
-                # 2. Se não digitou conta nova, usa a que foi selecionada
                 else:
                     id_real_da_conta = dicionario_contas[conta_escolhida]
 
-                # 3. Faz o lançamento vinculado à conta
                 if id_real_da_conta:
                     dados_lancamento = {
                         "user_id": user_id,
@@ -113,11 +103,9 @@ with st.form("lancamento_form", clear_on_submit=True):
                         "status_financeiro": status,
                         "grupo": grupo
                     }
-                    
                     supabase.table("lancamentos").insert(dados_lancamento).execute()
                     st.success("Lançamento registrado com sucesso!")
                     st.rerun() 
-                    
             except Exception as e:
                 st.error(f"Erro ao processar operação: {e}")
 
@@ -130,37 +118,43 @@ if user_id:
         response = supabase.table("lancamentos").select("*").eq("user_id", user_id).order("data_lancamento", desc=True).execute()
         
         if response.data:
-            st.write("💡 *Dica: Dê dois cliques em qualquer campo para editar o valor. Marque a caixinha na esquerda para deletar.*")
+            st.write("💡 *Dica de Edição: Dê dois cliques em cima de qualquer Data, Valor, Operação ou Grupo na tabela abaixo para editá-los diretamente.*")
+            
+            # Criar um dicionário reverso para descobrir o Nome da Conta a partir do ID
+            id_para_nome = {v: k for k, v in dicionario_contas.items()}
             
             dados_com_selecao = []
             for item in response.data:
-                item["Selecionar"] = False
+                item["Excluir"] = False
+                # Adiciona o nome real da conta na linha
+                item["Conta_Nome"] = id_para_nome.get(item["conta_id"], "Conta Desconhecida")
                 dados_com_selecao.append(item)
             
+            # Configuração da tabela limpa
             tabela_editavel = st.data_editor(
                 dados_com_selecao,
                 use_container_width=True,
-                disabled=["id", "user_id", "conta_id"], 
+                disabled=["id", "user_id", "conta_id", "Conta_Nome"], # Impede a edição de IDs internos
+                column_order=["Excluir", "data_lancamento", "Conta_Nome", "operacao", "valor", "grupo", "status_financeiro"],
                 column_config={
-                    "Selecionar": st.column_config.CheckboxColumn("Deletar?", default=False),
+                    "Excluir": st.column_config.CheckboxColumn("🗑️ Excluir?", default=False),
                     "id": None,          
                     "user_id": None,     
-                    "conta_id": st.column_config.NumberColumn("ID da Conta"),
+                    "conta_id": None, # Oculta o ID numérico da conta
+                    "Conta_Nome": st.column_config.TextColumn("Conta (Razonete)"), # Mostra o nome bonito
                     "data_lancamento": st.column_config.TextColumn("Data"),
                     "valor": st.column_config.NumberColumn("Valor (R$)", format="%.2f"),
                     "operacao": st.column_config.SelectboxColumn("Operação", options=["Débito", "Crédito"]),
                     "grupo": st.column_config.SelectboxColumn("Grupo", options=opcoes_grupo),
-                    "status_financeiro": st.column_config.SelectboxColumn("Status", options=["Entrada", "Saída", "Pendente", "Investimento", "Transação Interna"]),
-                    "justificativa": None 
+                    "status_financeiro": st.column_config.SelectboxColumn("Status", options=["Entrada", "Saída", "Pendente", "Investimento", "Transação Interna"])
                 }
             )
             
             # --- LÓGICA DE SALVAR EDIÇÕES ---
             if tabela_editavel != dados_com_selecao:
-                col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 2])
-                
+                col_btn1, col_btn2 = st.columns([1, 3])
                 with col_btn1:
-                    if st.button("💾 Salvar Alterações"):
+                    if st.button("💾 Salvar Edições", type="primary"):
                         try:
                             for linha_original, linha_editada in zip(dados_com_selecao, tabela_editavel):
                                 if (linha_original["valor"] != linha_editada["valor"] or 
@@ -178,22 +172,21 @@ if user_id:
                                         "status_financeiro": linha_editada["status_financeiro"]
                                     }
                                     supabase.table("lancamentos").update(dados_atualizados).eq("id", id_linha).execute()
-                            st.success("Alterações salvas!")
+                            st.success("Edições salvas com sucesso!")
                             st.rerun()
                         except Exception as e:
                             st.error(f"Erro ao salvar edições: {e}")
                 
-                with col_btn2:
-                    # --- LÓGICA DE EXCLUIR SELECIONADOS ---
-                    ids_para_deletar = [linha["id"] for linha in tabela_editavel if linha["Selecionar"]]
-                    if ids_para_deletar:
-                        if st.button("🗑️ Excluir Selecionados", type="primary"):
-                            try:
-                                supabase.table("lancamentos").delete().in_("id", ids_para_deletar).execute()
-                                st.success("Lançamentos excluídos!")
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"Erro ao excluir: {e}")
+            # --- LÓGICA DE EXCLUIR SELECIONADOS ---
+            ids_para_deletar = [linha["id"] for linha in tabela_editavel if linha["Excluir"]]
+            if ids_para_deletar:
+                if st.button("🗑️ Confirmar Exclusão", type="primary"):
+                    try:
+                        supabase.table("lancamentos").delete().in_("id", ids_para_deletar).execute()
+                        st.success("Lançamentos excluídos!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erro ao excluir: {e}")
 
             # --- LÓGICA DE RESETAR TUDO ---
             st.markdown("---")
@@ -201,7 +194,7 @@ if user_id:
                 st.warning("Atenção! Esta ação apagará permanentemente todos os seus lançamentos contábeis. Esta ação não pode ser desfeita.")
                 confirmacao = st.text_input("Para confirmar, digite 'DELETAR TUDO' no campo abaixo:")
                 
-                if st.button("💥 APAGAR TODO O HISTÓRICO", type="primary"):
+                if st.button("💥 APAGAR TODO O HISTÓRICO"):
                     if confirmacao == "DELETAR TUDO":
                         try:
                             supabase.table("lancamentos").delete().eq("user_id", user_id).execute()
