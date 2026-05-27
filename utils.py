@@ -1,82 +1,83 @@
 import streamlit as st
 import os
 from supabase import create_client
+
+# Inicialização do Cliente Supabase
+def get_supabase():
+    """Retorna a instância do cliente Supabase usando segredos."""
+    return create_client(
+        st.secrets["SUPABASE_URL"], import streamlit as st
 from fpdf import FPDF
 
-# --- CONEXÃO SUPABASE ---
+# Garanta que esta função de conexão esteja aqui
 def get_supabase():
-    """Retorna a instância do cliente Supabase usando segredos."""
-    return create_client(
-        st.secrets["https://ejdvfuczdnpyhuosruey.supabase.co"], 
-        st.secrets["sb_publishable_6x5uVjXcIh4KnlpQSFOv_g_P6rnEw08"]
-    )
+    from supabase import create_client
+    # Substitua pelas suas credenciais ou mantenha a sua lógica atual
+    return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
 
-# --- AUTENTICAÇÃO ---
 def check_auth():
-    """Verifica se existe um usuário no session_state. Se não, redireciona."""
-    if "user" not in st.session_state or st.session_state["user"] is None:
-        st.switch_page("app.py")
-        st.stop()
-    return st.session_state["user"]
+    if 'user' not in st.session_state:
+        st.warning("Por favor, faça login.")
+        st.stop()
 
 def show_auth_sidebar(supabase):
-    """Exibe o status do usuário logado e o botão de logout na sidebar."""
-    if "user" in st.session_state and st.session_state["user"]:
-        user = st.session_state["user"]
-        email = getattr(user, 'email', None) or (user.get('email') if isinstance(user, dict) else "Usuário")
-        
-        st.sidebar.markdown("---")
-        st.sidebar.write(f"👤 **Logado:**")
-        st.sidebar.caption(email)
-        
-        if st.sidebar.button("🚪 Deslogar"):
-            supabase.auth.sign_out()
-            st.session_state["user"] = None
-            st.switch_page("app.py")
-            st.rerun()
+    st.sidebar.write(f"Usuário: {st.session_state.user.email}")
 
-# --- DADOS E CACHE ---
 @st.cache_data
 def get_data_cached(tabela, user_id):
-    """Busca dados de uma tabela no Supabase com cache."""
-    supabase = get_supabase()
-    res = supabase.table(tabela).select("*").eq("user_id", user_id).execute()
-    return res.data
+    supabase = get_supabase()
+    res = supabase.table(tabela).select("*").eq("user_id", user_id).execute()
+    return res.data
 
-# --- ESTILIZAÇÃO E RELATÓRIOS ---
-def inject_css(file_name="style.css"):
-    """Lê um arquivo CSS e aplica ao Streamlit."""
-    if os.path.exists(file_name):
-        with open(file_name, "r") as f:
-            st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
-    else:
-        # CSS padrão caso o arquivo não exista
-        st.markdown("<style>.stMetric { background-color: #f9f9f9; padding: 10px; border-radius: 5px; }</style>", unsafe_allow_html=True)
+def inject_css():
+    st.markdown("<style>.stMetric { background-color: #f9f9f9; padding: 10px; border-radius: 5px; }</style>", unsafe_allow_html=True)
 
 def gerar_relatorio_pdf(titulo, df):
-    """Gera um PDF simples com os dados do DataFrame."""
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", 'B', 16)
-    pdf.cell(200, 10, txt=titulo, ln=True, align='C')
-    pdf.set_font("Arial", size=10)
-    pdf.ln(10)
-    
-    # Cabeçalho da tabela no PDF
-    pdf.set_font("Arial", 'B', 10)
-    pdf.cell(40, 10, "Data", border=1)
-    pdf.cell(60, 10, "Conta", border=1)
-    pdf.cell(40, 10, "Status", border=1)
-    pdf.cell(30, 10, "Valor", border=1)
-    pdf.ln()
-    
-    # Linhas
-    pdf.set_font("Arial", size=10)
-    for _, row in df.iterrows():
-        pdf.cell(40, 10, str(row['data_lancamento'].date()), border=1)
-        pdf.cell(60, 10, str(row['nome_conta']), border=1)
-        pdf.cell(40, 10, str(row['status_financeiro']), border=1)
-        pdf.cell(30, 10, f"R$ {row['valor']:.2f}", border=1)
-        pdf.ln()
-        
-    return pdf.output(dest='S').encode('latin-1')
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", 'B', 16)
+    pdf.cell(200, 10, txt=titulo, ln=True, align='C')
+    pdf.set_font("Arial", size=10)
+    for _, row in df.iterrows():
+        texto = f"{row['data_lancamento']} | {row['nome_conta']} | {row['status_financeiro']} | R$ {row['valor']:.2f}"
+        pdf.cell(200, 10, txt=texto, ln=True)
+    return pdf.output(dest='S').encode('latin-1')
+        st.secrets["SUPABASE_KEY"]
+    )
+
+# Verificação de Autenticação
+def check_auth():
+    """
+    Verifica se existe um usuário no session_state.
+    Se não, redireciona para a página principal (login).
+    """
+    if "user" not in st.session_state or st.session_state["user"] is None:
+        st.switch_page("app.py")
+        st.stop()
+    return st.session_state["user"]
+
+# Sidebar de Autenticação
+def show_auth_sidebar(supabase):
+    """Exibe o status do usuário logado e o botão de logout na sidebar."""
+    if "user" in st.session_state and st.session_state["user"]:
+        user = st.session_state["user"]
+        
+        # Lida com o objeto user sendo um objeto ou dicionário
+        email = getattr(user, 'email', None) or (user.get('email') if isinstance(user, dict) else "Usuário")
+        
+        st.sidebar.markdown("---")
+        st.sidebar.write(f"👤 **Logado como:**")
+        st.sidebar.caption(email)
+        
+        if st.sidebar.button("🚪 Deslogar"):
+            supabase.auth.sign_out()
+            st.session_state["user"] = None
+            st.switch_page("app.py")
+            st.rerun()
+
+# Injeção de CSS
+def inject_css(file_name="style.css"):
+    """Lê um arquivo CSS e aplica ao Streamlit."""
+    if os.path.exists(file_name):
+        with open(file_name, "r") as f:
+            st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
