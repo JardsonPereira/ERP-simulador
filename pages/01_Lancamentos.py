@@ -15,70 +15,53 @@ show_auth_sidebar(supabase)
 user_id = getattr(user, 'id', None) or (user.get('id') if isinstance(user, dict) else None)
 
 # --- INTERFACE PRINCIPAL ---
-st.title("💰 Lançamentos nos Razonetes")
-st.markdown("Registre as movimentações de Débito e Crédito para compor os razonetes.")
+st.title("💰 Lançamentos Financeiros")
 
-# --- BUSCAR AS CONTAS CONTÁBEIS DO BANCO ---
-lista_contas = []
-dicionario_contas = {}
+# --- FORMULÁRIO PARA NOVO LANÇAMENTO ---
+st.subheader("Novo Lançamento")
 
-if user_id:
-    try:
-        # Busca as contas contábeis criadas pelo usuário para listar no formulário
-        resposta_contas = supabase.table("contas_contabeis").select("id", "nome").eq("user_id", user_id).execute()
-        if resposta_contas.data:
-            # Cria um dicionário mapeando 'Nome da Conta' -> 'ID da Conta'
-            dicionario_contas = {item["nome"]: item["id"] for item in resposta_contas.data}
-            lista_contas = list(dicionario_contas.keys())
-    except Exception as e:
-        st.error(f"Erro ao carregar plano de contas: {e}")
+with st.form("lancamento_form", clear_on_submit=True):
+    col1, col2 = st.columns(2)
+    with col1:
+        data_input = st.date_input("Data", date.today())
+        valor = st.number_input("Valor", min_value=0.0, format="%.2f")
+        # O conta_id é necessário pelo seu banco de dados. 
+        # Coloque o ID numérico da conta que você já tem cadastrada (ex: 1, 2, etc.)
+        conta_id = st.number_input("ID da Conta", min_value=1, step=1) 
+    with col2:
+        tipo = st.selectbox("Tipo", ["Receita", "Despesa"])
+        descricao = st.text_input("Operação / Descrição")
+    
+    submit = st.form_submit_button("Guardar Lançamento")
 
-# --- FORMULÁRIO DE LANÇAMENTO ---
-if not lista_contas:
-    st.info("⚠️ Antes de realizar um lançamento, você precisa cadastrar suas contas na aba de Plano de Contas (Razonetes).")
-else:
-    with st.form("lancamento_form", clear_on_submit=True):
-        col1, col2 = st.columns(2)
-        with col1:
-            data_input = st.date_input("Data do Lançamento", date.today())
-            conta_selecionada = st.selectbox("Selecione a Conta (Razonete)", lista_contas)
-            valor = st.number_input("Valor (R$)", min_value=0.01, format="%.2f")
-        with col2:
-            tipo_operacao = st.selectbox("Tipo de Operação", ["Débito", "Crédito"])
-            descricao = st.text_input("Histórico / Descrição", placeholder="Ex: Integralização de Capital, Compra de Mercadorias")
-        
-        submit = st.form_submit_button("Gravar Lançamento")
-
-        if submit:
-            if not descricao:
-                st.warning("A descrição/histórico é obrigatória!")
-            elif not user_id:
-                st.error("Erro ao identificar o utilizador. Por favor, inicie sessão novamente.")
-            else:
-                # Pega o ID correto da conta selecionada usando o dicionário
-                id_da_conta = dicionario_contas[conta_selecionada]
-                
-                dados = {
-                    "user_id": user_id,
-                    "data_lancamento": str(data_input),
-                    "conta_id": id_da_conta, # Vincula o lançamento ao ID do Razonete
-                    "descricao": descricao,
-                    "tipo": tipo_operacao,   # Salva se foi Débito ou Crédito
-                    "valor": valor
-                }
-                try:
-                    supabase.table("lancamentos").insert(dados).execute()
-                    st.success("Lançamento registrado com sucesso!")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Erro ao guardar lançamento: {e}")
+    if submit:
+        if not descricao:
+            st.warning("A descrição é obrigatória!")
+        elif not user_id:
+            st.error("Erro ao identificar o utilizador. Por favor, inicie sessão novamente.")
+        else:
+            # Usando os nomes EXATOS das colunas que vi na foto do seu Supabase
+            dados = {
+                "user_id": user_id,
+                "data_lancamento": str(data_input),
+                "operacao": descricao,           # Ajustado para 'operacao'
+                "status_financeiro": tipo,       # Ajustado para 'status_financeiro'
+                "conta_id": conta_id,            # A chave estrangeira que faltava
+                "valor": valor if tipo == "Receita" else -valor
+            }
+            try:
+                supabase.table("lancamentos").insert(dados).execute()
+                st.success("Lançamento guardado com sucesso!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Erro ao guardar: {e}")
 
 # --- LISTAGEM (HISTÓRICO) ---
+st.markdown("---")
 st.subheader("Histórico de Lançamentos")
 
 if user_id:
     try:
-        # Busca os lançamentos trazendo os dados mais recentes primeiro
         response = supabase.table("lancamentos").select("*").eq("user_id", user_id).order("data_lancamento", desc=True).execute()
         
         if response.data:
