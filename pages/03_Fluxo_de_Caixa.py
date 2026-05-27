@@ -3,7 +3,7 @@ import pandas as pd
 import sys
 import os
 
-# Adiciona o caminho das utilidades
+# Caminho para utils
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from utils import get_data_cached, check_auth, inject_css
 
@@ -20,60 +20,53 @@ contas = get_data_cached("contas", user_id)
 if lancamentos and contas:
     df = pd.DataFrame(lancamentos).merge(pd.DataFrame(contas), left_on='conta_id', right_on='id')
     
-    # 2. Limpeza e Padronização
+    # 2. Limpeza e conversão numérica
     df['valor'] = pd.to_numeric(df['valor'], errors='coerce').fillna(0)
     df['data_lancamento'] = pd.to_datetime(df['data_lancamento'])
-    df['status_limpo'] = df['status_financeiro'].astype(str).str.strip().str.capitalize()
     
-    # 3. FILTRO RÍGIDO: Remove qualquer status que não seja Entrada ou Saída
-    # Isso elimina automaticamente "Transação Interna" ou outros status indesejados
-    df = df[df['status_limpo'].isin(['Entrada', 'Saída'])].copy()
-
-    # 4. Cálculo do Valor Efetivo (Entrada = +, Saída = -)
-    def calcular_efetivo(row):
-        # abs(valor) garante que, se alguém digitou negativo por erro, vira positivo
-        # o sinal de menos (-) na frente do abs() garante a subtração na saída
-        if row['status_limpo'] == 'Entrada':
-            return abs(row['valor'])
+    # 3. Lógica de Reflexão no Fluxo (Sinal)
+    # Entrada = 1, Saída = -1, Outros = 0 (Ignora Transação Interna, Pendente, etc)
+    def definir_sinal(status):
+        s = str(status).strip()
+        if s == 'Entrada':
+            return 1
+        elif s == 'Saída':
+            return -1
         else:
-            return -abs(row['valor'])
+            return 0 # Não afeta o caixa
 
-    df['valor_efetivo'] = df.apply(calcular_efetivo, axis=1)
+    df['sinal'] = df['status_financeiro'].apply(definir_sinal)
+    df['valor_efetivo'] = df['valor'] * df['sinal']
 
-    # 5. Filtros de Período
+    # --- DEBUG PARA VOCÊ VER O QUE ESTÁ ACONTECENDO ---
+    with st.expander("🔍 Diagnóstico do Fluxo"):
+        st.write(df[['status_financeiro', 'valor', 'sinal', 'valor_efetivo']])
+
+    # 4. Filtros
     c1, c2 = st.columns(2)
-    d_inicio = c1.date_input("Início", value=df['data_lancamento'].min().date() if not df.empty else pd.Timestamp.now().date())
-    d_fim = c2.date_input("Fim", value=df['data_lancamento'].max().date() if not df.empty else pd.Timestamp.now().date())
+    d_inicio = c1.date_input("Início", value=df['data_lancamento'].min().date())
+    d_fim = c2.date_input("Fim", value=df['data_lancamento'].max().date())
     
     mask = (df['data_lancamento'].dt.date >= d_inicio) & (df['data_lancamento'].dt.date <= d_fim)
     df_fc = df[mask].copy()
 
-    # 6. Cálculos Financeiros
-    # Saldo inicial: Acumulado de tudo o que aconteceu antes do filtro de data
+    # 5. Cálculos usando o sinal (Soma negativa subtrai do total)
     saldo_inicial = df[df['data_lancamento'].dt.date < d_inicio]['valor_efetivo'].sum()
     
-    # Totais para exibição (usamos o valor absoluto para mostrar o montante)
-    total_entradas = df_fc[df_fc['status_limpo'] == 'Entrada']['valor'].sum()
-    total_saidas = df_fc[df_fc['status_limpo'] == 'Saída']['valor'].sum()
+    # Exibe apenas os valores positivos de entrada e saída para as métricas
+    total_entradas = df_fc[df_fc['sinal'] == 1]['valor'].sum()
+    total_saidas = df_fc[df_fc['sinal'] == -1]['valor'].sum()
     
-    # Saldo final: O saldo que já existia + as movimentações do período (já subtraindo as saídas)
     saldo_final = saldo_inicial + df_fc['valor_efetivo'].sum()
 
-    # 7. Exibição das métricas
+    # 6. Métricas
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Saldo Inicial", f"R$ {saldo_inicial:,.2f}")
     col2.metric("Entradas", f"R$ {total_entradas:,.2f}")
     col3.metric("Saídas", f"R$ {total_saidas:,.2f}")
     col4.metric("Saldo Final", f"R$ {saldo_final:,.2f}")
 
-    st.markdown("---")
-    st.subheader("Lançamentos no Período")
-    # Tabela mostrando apenas o que foi filtrado
-    st.dataframe(
-        df_fc[['data_lancamento', 'status_financeiro', 'valor', 'justificativa']]
-        .sort_values('data_lancamento', ascending=False), 
-        use_container_width=True
-    )
+    st.dataframe(df_fc[['data_lancamento', 'status_financeiro', 'valor', 'justificativa']])
 
 else:
-    st.info("Nenhum lançamento de Entrada/Saída encontrado.")
+    st.info("Nenhum lançamento encontrado.")
