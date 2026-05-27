@@ -108,25 +108,28 @@ if user_id:
             col3.metric("Dif. Saldo", f"R$ {(pivot['Saldo Devedor'].sum() - pivot['Saldo Credor'].sum()):,.2f}")
             
             display_cols = ['Débito', 'Crédito', 'Saldo Devedor', 'Saldo Credor']
-            # CORREÇÃO AQUI: usando .map() no lugar de .applymap()
-            pivot_display = pivot[display_cols].map(lambda x: f"R$ {x:,.2f}")
+            pivot_display = pivot[display_cols].applymap(lambda x: f"R$ {x:,.2f}")
             st.dataframe(pivot_display, use_container_width=True)
 
         # --- TAB 3: BALANÇO PATRIMONIAL ---
         with tab3:
             st.subheader("Balanço Patrimonial (Saldos das Contas)")
             
+            # 1. Agrupa por conta para ter o saldo final (Razonete)
             df_contas = df_p.groupby(['nome_conta', 'Categoria', 'operacao'])['valor'].sum().unstack(fill_value=0)
             df_contas['Saldo_Net'] = df_contas.get('Débito', 0) - df_contas.get('Crédito', 0)
 
+            # 2. Ajuste de natureza: Ativo (Saldo positivo = Devedor), Passivo/PL (Saldo negativo = Credor)
             def calcular_valor_balanco(row):
                 cat = row.name[1] 
                 s = row['Saldo_Net']
                 if 'Ativo' in cat: return s
-                if 'Passivo' in cat or 'Patrimônio' in cat: return -s 
+                if 'Passivo' in cat or 'Patrimônio' in cat: return -s # Inverte sinal para representar crédito
                 return 0
 
             df_contas['Valor_Balanço'] = df_contas.apply(calcular_valor_balanco, axis=1)
+            
+            # 3. Agrupa os valores finais por categoria
             df_balanco = df_contas.reset_index().groupby('Categoria')['Valor_Balanço'].sum()
             
             ativo = df_balanco[df_balanco.index.str.contains('Ativo')].sum()
