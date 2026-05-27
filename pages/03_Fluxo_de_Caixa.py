@@ -23,17 +23,20 @@ if lancamentos and contas:
     # Merge dos dados
     df = pd.DataFrame(lancamentos).merge(pd.DataFrame(contas), left_on='conta_id', right_on='id', suffixes=('', '_conta'))
     
-    # Processamento
+    # --- PROCESSAMENTO ROBUSTO ---
     df['data_lancamento'] = pd.to_datetime(df['data_lancamento'].astype(str).str[:10]).dt.date
     df['valor'] = pd.to_numeric(df['valor'], errors='coerce').fillna(0)
+    
+    # Padroniza status (Entrada/Saída)
     df['status_limpo'] = df['status_financeiro'].astype(str).str.strip().str.capitalize()
     
-    # Garantir que a coluna 'grupo' seja tratada como string para evitar erros
-    if 'grupo' not in df.columns:
-        df['grupo'] = 'Não definido'
-    df['grupo'] = df['grupo'].astype(str).str.strip()
+    # Padroniza GRUPO para garantir que a busca funcione (Remove espaços e coloca tudo em minúsculo)
+    if 'grupo' in df.columns:
+        df['grupo_limpo'] = df['grupo'].astype(str).str.strip().str.lower()
+    else:
+        df['grupo_limpo'] = 'não definido'
 
-    # 2. Sidebar (Filtros)
+    # Filtros da Sidebar
     with st.sidebar:
         st.header("⚙️ Filtros")
         contas_disponiveis = df['nome_conta'].unique()
@@ -67,14 +70,14 @@ if lancamentos and contas:
     with tab2:
         st.subheader("Análise de Solvência (Saldo Final / Passivos)")
         
-        # Filtros de Passivos usando a coluna 'grupo' do banco
-        p_circulante = df_periodo[(df_periodo['status_limpo'] == 'Saída') & (df_periodo['grupo'] == 'Circulante')]['valor'].sum()
-        p_nao_circulante = df_periodo[(df_periodo['status_limpo'] == 'Saída') & (df_periodo['grupo'] == 'Não Circulante')]['valor'].sum()
+        # Filtros usando a versão limpa do grupo
+        # Nota: usamos .str.lower() pois o grupo_limpo já está assim
+        p_circulante = df_periodo[(df_periodo['status_limpo'] == 'Saída') & (df_periodo['grupo_limpo'] == 'circulante')]['valor'].sum()
+        p_nao_circulante = df_periodo[(df_periodo['status_limpo'] == 'Saída') & (df_periodo['grupo_limpo'] == 'não circulante')]['valor'].sum()
         
         total_passivos = p_circulante + p_nao_circulante
         saldo_final = df_periodo[df_periodo['status_limpo'] == 'Entrada']['valor'].sum() - df_periodo[df_periodo['status_limpo'] == 'Saída']['valor'].sum()
         
-        # Fórmula solicitada: Saldo Final / (Circulante + Não Circulante)
         liquidez = (saldo_final / total_passivos) if total_passivos > 0 else 0
         
         c1, c2, c3 = st.columns(3)
@@ -87,9 +90,9 @@ if lancamentos and contas:
         col_a.metric("Passivo Circulante", f"R$ {p_circulante:,.2f}")
         col_b.metric("Passivo Não Circulante", f"R$ {p_nao_circulante:,.2f}")
         
-        # Tabela de Detalhamento dos Passivos
-        st.markdown("### Detalhes dos Lançamentos (Passivos)")
-        df_passivos = df_periodo[df_periodo['grupo'].isin(['Circulante', 'Não Circulante'])]
+        st.markdown("### Detalhamento dos Passivos (Lançamentos)")
+        # Filtra os dados apenas para mostrar o que é passivo circulante ou não circulante
+        df_passivos = df_periodo[df_periodo['grupo_limpo'].isin(['circulante', 'não circulante'])]
         st.dataframe(df_passivos[['data_lancamento', 'nome_conta', 'grupo', 'valor', 'justificativa']], use_container_width=True)
 
     with tab3:
