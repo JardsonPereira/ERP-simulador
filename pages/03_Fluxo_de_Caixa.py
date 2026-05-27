@@ -10,7 +10,7 @@ from utils import get_data_cached, check_auth, inject_css
 check_auth()
 inject_css()
 
-st.header("📊 Fluxo de Caixa (Rigoroso)")
+st.header("📊 Fluxo de Caixa (Fiel ao Lançamento)")
 
 # 1. Carregamento dos dados
 user_id = st.session_state.user.id
@@ -18,30 +18,30 @@ lancamentos = get_data_cached("lancamentos", user_id)
 contas = get_data_cached("contas", user_id)
 
 if lancamentos and contas:
-    df_l = pd.DataFrame(lancamentos)
-    df_c = pd.DataFrame(contas)
-    df = df_l.merge(df_c, left_on='conta_id', right_on='id', suffixes=('_lanc', '_conta'))
+    df = pd.DataFrame(lancamentos).merge(pd.DataFrame(contas), left_on='conta_id', right_on='id')
     
-    # 2. Conversão RÍGIDA de Data (Pura: Ano-Mês-Dia)
-    # str[:10] corta qualquer hora/minuto e .dt.date garante objeto date puro
+    # 2. A CORREÇÃO DE DATA ESTÁ AQUI:
+    # Convertemos para string e pegamos apenas os primeiros 10 caracteres (YYYY-MM-DD).
+    # Depois, convertemos para objeto 'date'. Isso bloqueia o fuso horário.
     df['data_lancamento'] = pd.to_datetime(df['data_lancamento'].astype(str).str[:10]).dt.date
     
     df['valor'] = pd.to_numeric(df['valor'], errors='coerce').fillna(0)
     df['status_limpo'] = df['status_financeiro'].astype(str).str.strip().str.capitalize()
     
-    # 3. FILTRO CONTÁBIL: Apenas Entrada e Saída
+    # 3. FILTRO CONTÁBIL RÍGIDO: Apenas Entrada e Saída
     df = df[df['status_limpo'].isin(['Entrada', 'Saída'])].copy()
 
     if not df.empty:
-        # Cálculo de sinal
+        # Cálculo de sinal (Crédito/Débito)
         df['valor_efetivo'] = df.apply(lambda row: row['valor'] if row['status_limpo'] == 'Entrada' else -abs(row['valor']), axis=1)
 
-        # 4. Interface de Período (Rigorosa)
+        # 4. Interface de Período
         c1, c2 = st.columns(2)
+        # O uso de .date() garante consistência absoluta com o date_input
         d_inicio = c1.date_input("Início do Período", value=df['data_lancamento'].min())
         d_fim = c2.date_input("Fim do Período", value=df['data_lancamento'].max())
         
-        # Filtro de data estrito (Data >= Início AND Data <= Fim)
+        # Filtro de data estrito
         mask = (df['data_lancamento'] >= d_inicio) & (df['data_lancamento'] <= d_fim)
         df_periodo = df[mask].copy()
         
@@ -59,8 +59,13 @@ if lancamentos and contas:
         col4.metric("Saldo Final", f"R$ {saldo_final:,.2f}")
 
         st.markdown("---")
-        st.dataframe(df_periodo[['data_lancamento', 'status_financeiro', 'valor', 'justificativa']].sort_values('data_lancamento', ascending=False), use_container_width=True)
+        st.subheader("Lançamentos do Período Selecionado")
+        st.dataframe(
+            df_periodo[['data_lancamento', 'status_financeiro', 'valor', 'justificativa']]
+            .sort_values('data_lancamento', ascending=False), 
+            use_container_width=True
+        )
     else:
-        st.info("Nenhum lançamento encontrado para o filtro aplicado.")
+        st.info("Nenhum lançamento de Entrada ou Saída encontrado para este período.")
 else:
     st.warning("Dados não carregados.")
