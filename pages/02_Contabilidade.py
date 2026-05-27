@@ -7,6 +7,8 @@ import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from utils import get_supabase, check_auth, show_auth_sidebar
 
+st.set_page_config(page_title="Contabilidade", layout="wide")
+
 check_auth()
 supabase = get_supabase()
 show_auth_sidebar(supabase)
@@ -27,7 +29,7 @@ def classificar_conta(grupo):
     if 'patrimônio' in g or 'pl' in g: return '5. Patrimônio Líquido'
     if 'receita' in g: return '6. Receitas'
     if 'despesa' in g or 'custo' in g: return '7. Despesas'
-    if 'encargo' in g: return '7. Despesas' # Encargos Financeiros classificados como despesa
+    if 'encargo' in g: return '7. Despesas' 
     return '8. Outros'
 
 if user_id:
@@ -39,10 +41,10 @@ if user_id:
         df_l = pd.DataFrame(res_lanc.data)
         df_c = pd.DataFrame(res_contas.data)
         
-        # Merge seguro (evita duplicação de colunas)
+        # Merge seguro
         df = df_l.merge(df_c, left_on='conta_id', right_on='id', suffixes=('_lanc', '_conta'))
         
-        # CORREÇÃO DO KEYERROR: Unificação da coluna grupo
+        # Unificação da coluna grupo
         df['grupo'] = df.get('grupo_lanc', df.get('grupo_conta', 'Outros'))
         
         df['data_lancamento'] = pd.to_datetime(df['data_lancamento'])
@@ -76,7 +78,6 @@ if user_id:
                                 saldo = abs(t_deb - t_cre)
                                 tipo_saldo = "Devedor" if t_deb >= t_cre else "Credor"
                                 
-                                # HTML para exibição
                                 deb_list = "".join([f"<div style='border-bottom:1px solid #eee; margin-bottom:5px;'><small>R$ {r.valor:,.2f}</small><br><b style='font-size:0.8em;'>{r.justificativa}</b></div>" for _, r in d_c[d_c['operacao'] == 'Débito'].iterrows()])
                                 cre_list = "".join([f"<div style='border-bottom:1px solid #eee; margin-bottom:5px;'><small>R$ {r.valor:,.2f}</small><br><b style='font-size:0.8em;'>{r.justificativa}</b></div>" for _, r in d_c[d_c['operacao'] == 'Crédito'].iterrows()])
                                 
@@ -96,10 +97,31 @@ if user_id:
         with tab2:
             st.subheader("Balancete de Verificação")
             pivot = df_p.pivot_table(index='nome_conta', columns='operacao', values='valor', aggfunc='sum', fill_value=0)
+            
             if 'Débito' not in pivot.columns: pivot['Débito'] = 0
             if 'Crédito' not in pivot.columns: pivot['Crédito'] = 0
             pivot['Saldo'] = pivot['Débito'] - pivot['Crédito']
-            st.dataframe(pivot, use_container_width=True)
+            
+            # Métricas Totais
+            total_deb = pivot['Débito'].sum()
+            total_cre = pivot['Crédito'].sum()
+            
+            col_m1, col_m2 = st.columns(2)
+            col_m1.metric("Total Débitos", f"R$ {total_deb:,.2f}")
+            col_m2.metric("Total Créditos", f"R$ {total_cre:,.2f}")
+            
+            # Exibição Formatada
+            pivot_display = pivot.copy()
+            pivot_display['Débito'] = pivot_display['Débito'].apply(lambda x: f"R$ {x:,.2f}")
+            pivot_display['Crédito'] = pivot_display['Crédito'].apply(lambda x: f"R$ {x:,.2f}")
+            pivot_display['Saldo'] = pivot_display['Saldo'].apply(lambda x: f"R$ {x:,.2f}")
+            
+            st.dataframe(pivot_display, use_container_width=True)
+            
+            if abs(total_deb - total_cre) < 0.01:
+                st.success("✅ Balancete equilibrado: A soma de Débitos e Créditos é igual.")
+            else:
+                st.error(f"⚠️ Balancete desequilibrado! Diferença: R$ {(total_deb - total_cre):,.2f}")
 
         # --- TAB 3: BALANÇO PATRIMONIAL ---
         with tab3:
