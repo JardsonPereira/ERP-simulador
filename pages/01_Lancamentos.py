@@ -44,7 +44,7 @@ with st.form("lancamento_form", clear_on_submit=True):
         placeholder="Ex: Compra de Mercadorias, Pagamento de Luz, etc."
     )
 
-    # Nova seção para a escolha ou criação da conta
+    # --- SEÇÃO DE SELEÇÃO OU CRIAÇÃO DE CONTA ---
     st.markdown("---")
     col_conta1, col_conta2 = st.columns(2)
     with col_conta1:
@@ -53,6 +53,7 @@ with st.form("lancamento_form", clear_on_submit=True):
         nova_conta_nome = st.text_input("OU Digite o nome para CRIAR uma Nova Conta", placeholder="Ex: Banco Inter, Caixa")
     st.markdown("---")
 
+    # --- RESTANTE DO FORMULÁRIO ---
     col1, col2 = st.columns(2)
     with col1:
         data_input = st.date_input("Data do Lançamento", date.today())
@@ -71,6 +72,7 @@ with st.form("lancamento_form", clear_on_submit=True):
         
     submit = st.form_submit_button("Confirmar e Gravar Lançamento")
 
+    # --- LÓGICA DE SALVAMENTO ---
     if submit:
         if not nome_lancamento:
             st.warning("O nome do lançamento é obrigatório!")
@@ -82,25 +84,24 @@ with st.form("lancamento_form", clear_on_submit=True):
             id_real_da_conta = None
             
             try:
-                # LÓGICA: Se o usuário digitou uma nova conta, cadastra ela primeiro
+                # 1. Se o usuário digitou uma nova conta, cria ela no banco primeiro
                 if nova_conta_nome.strip():
                     dados_nova_conta = {
                         "user_id": user_id,
                         "nome_conta": nova_conta_nome.strip(),
-                        "grupo": grupo # Associa a conta ao mesmo grupo contábil selecionado
+                        "grupo": grupo # Herda o grupo selecionado no lançamento
                     }
-                    # Insere na tabela 'contas'
                     resultado_conta = supabase.table("contas").insert(dados_nova_conta).execute()
                     
                     if resultado_conta.data:
-                        # Pega o ID que o banco acabou de gerar para essa nova conta
                         id_real_da_conta = resultado_conta.data[0]["id"]
                         st.info(f"Nova conta '{nova_conta_nome}' criada automaticamente!")
+                
+                # 2. Se não, usa a conta que foi selecionada na lista
                 else:
-                    # Se não digitou uma nova conta, pega o ID da conta selecionada na lista
                     id_real_da_conta = dicionario_contas[conta_escolhida]
 
-                # Se conseguimos um ID de conta válido, faz o lançamento
+                # 3. Com o ID da conta garantido, salva o lançamento
                 if id_real_da_conta:
                     dados_lancamento = {
                         "user_id": user_id,
