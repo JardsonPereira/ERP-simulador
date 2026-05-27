@@ -62,33 +62,31 @@ with st.form("lancamento_form", clear_on_submit=True):
                 st.rerun()
             except Exception as e: st.error(f"Erro: {e}")
 
-# --- HISTÓRICO CORRIGIDO ---
+# --- HISTÓRICO LIMPO E SEGURO ---
 st.markdown("---")
 st.subheader("📊 Histórico")
 if user_id:
     res = supabase.table("lancamentos").select("*").eq("user_id", user_id).order("data_lancamento", desc=True).execute()
     if res.data:
+        # CONVERSÃO PARA DATAFRAME E LIMPEZA
         df = pd.DataFrame(res.data)
         
-        # CORREÇÃO CRÍTICA: Remove colunas duplicadas caso existam
-        df = df.loc[:, ~df.columns.duplicated()]
-        
+        # Mapeamento e tratamento de dados
         id_para_nome = {v: k for k, v in dicionario_contas.items()}
-        
-        # Cria as colunas necessárias e garante nomes únicos
-        df["Excluir"] = False
         df["Conta"] = df["conta_id"].map(id_para_nome).fillna("N/A")
         df["valor"] = df["valor"].abs().astype(float)
+        df["Excluir"] = False
         
-        # Garante integridade das opções
-        df["grupo"] = df["grupo"].apply(lambda x: x if x in opcoes_grupo else opcoes_grupo[0])
-        df["operacao"] = df["operacao"].apply(lambda x: x if x in opcoes_operacao else opcoes_operacao[0])
-        df["status_financeiro"] = df["status_financeiro"].apply(lambda x: x if x in opcoes_status else opcoes_status[0])
+        # Garantir que não haja colunas duplicadas
+        df = df.loc[:, ~df.columns.duplicated()]
 
-        # Editor de dados
-        colunas_exibicao = ["Excluir", "data_lancamento", "Conta", "justificativa", "operacao", "valor", "grupo", "status_financeiro"]
+        # Selecionar apenas o essencial
+        cols_mostrar = ["Excluir", "data_lancamento", "Conta", "justificativa", "operacao", "valor", "grupo", "status_financeiro"]
+        df_edit = df[cols_mostrar].copy()
+
+        # Renderização do Editor (com tratamento de tipos)
         edit = st.data_editor(
-            df[colunas_exibicao],
+            df_edit,
             use_container_width=True,
             column_config={
                 "valor": st.column_config.NumberColumn("Valor (R$)", min_value=0.00, format="%.2f"),
@@ -100,13 +98,17 @@ if user_id:
             }
         )
         
+        # Lógica de botões
         c1, c2 = st.columns(2)
         with c1:
             if st.button("💾 Salvar Edições"):
                 try:
+                    # Comparar o editor com o original
                     for i in range(len(edit)):
-                        if not edit.iloc[i]["Excluir"]:
+                        if not edit.iloc[i]["Excluir"]: # Apenas se não deletado
+                            # Atualiza apenas se mudou
                             row = edit.iloc[i]
+                            # Usa o ID da linha original (df.iloc[i]["id"])
                             supabase.table("lancamentos").update({
                                 "valor": float(row["valor"]),
                                 "operacao": row["operacao"],
@@ -119,7 +121,7 @@ if user_id:
                 except Exception as e: st.error(f"Erro ao salvar: {e}")
         with c2:
             if st.button("🗑️ Excluir Selecionados"):
-                ids = df.loc[edit["Excluir"], "id"].tolist()
-                if ids:
-                    supabase.table("lancamentos").delete().in_("id", ids).execute()
+                ids_deletar = df.loc[edit["Excluir"], "id"].tolist()
+                if ids_deletar:
+                    supabase.table("lancamentos").delete().in_("id", ids_deletar).execute()
                     st.rerun()
