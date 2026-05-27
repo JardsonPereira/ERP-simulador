@@ -26,12 +26,20 @@ def show_auth_sidebar(supabase):
             st.switch_page("app.py")
             st.rerun()
 
-# --- DADOS ---
-@st.cache_data
+# --- DADOS (CORRIGIDO PARA FLUXO DE CAIXA) ---
+@st.cache_data(ttl=60) 
 def get_data_cached(tabela, user_id):
     supabase = get_supabase()
     res = supabase.table(tabela).select("*").eq("user_id", user_id).execute()
-    return res.data
+    
+    # Normalização rigorosa: garante que a data seja sempre YYYY-MM-DD, sem fuso horário
+    data = res.data
+    for item in data:
+        if 'data_lancamento' in item and item['data_lancamento']:
+            # Corta a string em 10 caracteres (YYYY-MM-DD) para ignorar horas/fusos
+            item['data_lancamento'] = str(item['data_lancamento'])[:10]
+            
+    return data
 
 # --- CSS E RELATÓRIOS ---
 def inject_css():
@@ -45,6 +53,7 @@ def gerar_relatorio_pdf(titulo, df):
     pdf.set_font("Arial", size=10)
     pdf.ln(10)
     for _, row in df.iterrows():
-        texto = f"{str(row['data_lancamento'])[:10]} | {row.get('nome_conta', '')} | {row.get('status_financeiro', '')} | R$ {float(row.get('valor', 0)):,.2f}"
+        # A data aqui já vem normalizada pela função de cima
+        texto = f"{row['data_lancamento']} | {row.get('nome_conta', '')} | {row.get('status_financeiro', '')} | R$ {float(row.get('valor', 0)):,.2f}"
         pdf.cell(200, 10, txt=texto, ln=True)
     return pdf.output(dest='S').encode('latin-1')
