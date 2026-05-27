@@ -41,7 +41,17 @@ if user_id:
         df = df_lanc.merge(df_contas, left_on='conta_id', right_on='id', suffixes=('_lanc', '_conta'))
         df['data_lancamento'] = pd.to_datetime(df['data_lancamento'])
         
-        # Filtro de Período
+        # --- CORREÇÃO DO ERRO 'GRUPO' ---
+        # Resolve o conflito caso ambas as tabelas tenham a coluna 'grupo'
+        if 'grupo' not in df.columns:
+            if 'grupo_lanc' in df.columns:
+                df['grupo'] = df['grupo_lanc']
+            elif 'grupo_conta' in df.columns:
+                df['grupo'] = df['grupo_conta']
+            else:
+                df['grupo'] = 'Outros'
+        
+        # --- FILTRO DE PERÍODO MANTIDO ---
         st.markdown("---")
         c1, c2 = st.columns(2)
         d_inicio = c1.date_input("Data Início", value=df['data_lancamento'].min().date())
