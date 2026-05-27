@@ -13,7 +13,6 @@ supabase = get_supabase()
 show_auth_sidebar(supabase)
 user_id = getattr(user, 'id', None) or (user.get('id') if isinstance(user, dict) else None)
 
-# Listas de opções fixas
 opcoes_grupo = [
     "Ativo Circulante", "Ativo Não Circulante", "Passivo Circulante", 
     "Passivo Não Circulante", "Patrimônio Líquido", "Receitas", 
@@ -63,28 +62,33 @@ with st.form("lancamento_form", clear_on_submit=True):
                 st.rerun()
             except Exception as e: st.error(f"Erro: {e}")
 
-# --- HISTÓRICO COM EDIÇÃO ---
+# --- HISTÓRICO CORRIGIDO ---
 st.markdown("---")
 st.subheader("📊 Histórico")
 if user_id:
     res = supabase.table("lancamentos").select("*").eq("user_id", user_id).order("data_lancamento", desc=True).execute()
     if res.data:
         df = pd.DataFrame(res.data)
+        
+        # CORREÇÃO CRÍTICA: Remove colunas duplicadas caso existam
+        df = df.loc[:, ~df.columns.duplicated()]
+        
         id_para_nome = {v: k for k, v in dicionario_contas.items()}
         
-        # Preparação dos dados para evitar erros de exibição
+        # Cria as colunas necessárias e garante nomes únicos
         df["Excluir"] = False
         df["Conta"] = df["conta_id"].map(id_para_nome).fillna("N/A")
         df["valor"] = df["valor"].abs().astype(float)
         
-        # Garante que os valores estejam dentro das opções aceitas (corrige caixas vermelhas)
+        # Garante integridade das opções
         df["grupo"] = df["grupo"].apply(lambda x: x if x in opcoes_grupo else opcoes_grupo[0])
         df["operacao"] = df["operacao"].apply(lambda x: x if x in opcoes_operacao else opcoes_operacao[0])
         df["status_financeiro"] = df["status_financeiro"].apply(lambda x: x if x in opcoes_status else opcoes_status[0])
 
         # Editor de dados
+        colunas_exibicao = ["Excluir", "data_lancamento", "Conta", "justificativa", "operacao", "valor", "grupo", "status_financeiro"]
         edit = st.data_editor(
-            df[["Excluir", "data_lancamento", "Conta", "justificativa", "operacao", "valor", "grupo", "status_financeiro"]],
+            df[colunas_exibicao],
             use_container_width=True,
             column_config={
                 "valor": st.column_config.NumberColumn("Valor (R$)", min_value=0.00, format="%.2f"),
