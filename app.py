@@ -16,6 +16,7 @@ supabase = create_client(url, key)
 st.set_page_config(page_title="Sistema Contábil", layout="wide")
 inject_css()
 
+# --- AUTENTICAÇÃO E LOGIN ---
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
 
@@ -41,19 +42,20 @@ def login_page():
                 st.success("Cadastro realizado!")
             except Exception as e: st.error(f"Erro: {e}")
 
+# --- SISTEMA PRINCIPAL ---
 def sistema_principal():
     st.sidebar.title("Menu Principal")
     pagina = st.sidebar.radio("Navegação", ["Dashboard", "Fluxo de Caixa"])
     
     st.sidebar.markdown("---")
-    st.sidebar.write(f"👤 Logado como: {st.session_state.user.email}")
+    st.sidebar.write(f"👤 {st.session_state.user.email}")
     if st.sidebar.button("Sair"):
         supabase.auth.sign_out()
         st.session_state.logged_in = False
         st.rerun()
 
     if pagina == "Fluxo de Caixa":
-        st.header("📊 Fluxo de Caixa: Liquidez e Passivos")
+        st.header("📊 Fluxo de Caixa")
         user_id = st.session_state.user.id
         lancamentos = get_data_cached("lancamentos", user_id)
         contas = get_data_cached("contas", user_id)
@@ -65,6 +67,7 @@ def sistema_principal():
             df['status_limpo'] = df['status_financeiro'].astype(str).str.strip().str.capitalize()
             df = df[df['status_limpo'].isin(['Entrada', 'Saída'])].copy()
 
+            # Filtros laterais
             with st.sidebar:
                 st.header("⚙️ Filtros")
                 d_inicio = st.date_input("Início", value=df['data_lancamento'].min())
@@ -75,34 +78,42 @@ def sistema_principal():
 
             tab1, tab2, tab3 = st.tabs(["📈 Visão Geral", "💧 Liquidez e Passivos", "📋 Detalhes"])
 
-            with tab1:
+            with tab1: # Visão Geral
                 total_entradas = df_periodo[df_periodo['status_limpo'] == 'Entrada']['valor'].sum()
                 total_saidas = df_periodo[df_periodo['status_limpo'] == 'Saída']['valor'].sum()
                 c1, c2, c3 = st.columns(3)
-                c1.metric("Entradas", f"R$ {total_entradas:,.2f}")
-                c2.metric("Saídas", f"R$ {total_saidas:,.2f}")
+                c1.metric("Total Entradas", f"R$ {total_entradas:,.2f}")
+                c2.metric("Total Saídas", f"R$ {total_saidas:,.2f}")
                 c3.metric("Saldo", f"R$ {total_entradas - total_saidas:,.2f}")
 
-            with tab2: # Aba Focada em Liquidez e Passivos
-                st.subheader("Análise de Solvência")
-                entradas_ativo = df_periodo[df_periodo['status_limpo'] == 'Entrada']['valor'].sum()
-                passivos_saidas = df_periodo[df_periodo['status_limpo'] == 'Saída']['valor'].sum()
+            with tab2: # Lógica Natural de Liquidez
+                st.subheader("Análise de Liquidez vs Passivos (Saídas)")
                 
-                # Índice de Liquidez (Entradas / Passivos)
-                liquidez = (entradas_ativo / passivos_saidas) if passivos_saidas > 0 else (entradas_ativo if entradas_ativo > 0 else 0)
+                # O Ativo é a sua capacidade de pagamento (Entradas)
+                # O Passivo são suas obrigações (Saídas)
+                valor_ativo = df_periodo[df_periodo['status_limpo'] == 'Entrada']['valor'].sum()
+                valor_passivo = df_periodo[df_periodo['status_limpo'] == 'Saída']['valor'].sum()
                 
-                col1, col2, col3 = st.columns(3)
-                col1.metric("Disponível (Ativos)", f"R$ {entradas_ativo:,.2f}")
-                col2.metric("Passivos (Saídas)", f"R$ {passivos_saidas:,.2f}")
-                col3.metric("Índice de Liquidez", f"{liquidez:,.2f}")
+                # Índice de Liquidez: $L = \frac{Ativo}{Passivo}$
+                indice_liquidez = (valor_ativo / valor_passivo) if valor_passivo > 0 else (valor_ativo if valor_ativo > 0 else 0)
                 
-                st.info("O Índice de Liquidez mostra quantas vezes suas entradas cobrem seus passivos (saídas) no período selecionado.")
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Ativos (Entradas)", f"R$ {valor_ativo:,.2f}")
+                c2.metric("Passivos (Saídas)", f"R$ {valor_passivo:,.2f}")
+                c3.metric("Índice de Liquidez", f"{indice_liquidez:,.2f}")
+                
+                st.markdown("""
+                * **Ativos (Entradas):** Representam o seu capital disponível no período.
+                * **Passivos (Saídas):** Representam suas obrigações financeiras pagas no período.
+                * **Índice de Liquidez:** Indica quantas vezes suas entradas cobrem suas saídas.
+                """)
 
-            with tab3:
+            with tab3: # Detalhes
                 st.dataframe(df_periodo[['data_lancamento', 'status_financeiro', 'valor', 'justificativa']], use_container_width=True)
         else:
             st.info("Nenhum dado encontrado.")
 
+# --- EXECUÇÃO ---
 if not st.session_state.logged_in:
     login_page()
 else:
