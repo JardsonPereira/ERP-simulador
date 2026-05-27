@@ -1,128 +1,94 @@
 import streamlit as st
 import pandas as pd
-import sys
-import os
+import sys, os
 from datetime import date
-
-# --- CONFIGURAÇÃO ---
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from utils import get_supabase, check_auth, show_auth_sidebar
 
-# --- AUTENTICAÇÃO ---
-user = check_auth()
+# Configuração e Autenticação
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+check_auth()
 supabase = get_supabase()
 show_auth_sidebar(supabase)
-user_id = getattr(user, 'id', None) or (user.get('id') if isinstance(user, dict) else None)
+user_id = st.session_state.user.id
 
-# --- DEFINIÇÕES ---
-opcoes_grupo = ["Ativo Circulante", "Ativo Não Circulante", "Passivo Circulante", 
-                "Passivo Não Circulante", "Patrimônio Líquido", "Receitas", 
-                "Despesas", "Transação Interna"]
-opcoes_operacao = ["Débito", "Crédito"]
-opcoes_status = ["Entrada", "Saída", "Pendente", "Investimento", "Transação Interna"]
+st.title("💰 Lançamentos")
 
-st.title("💰 Lançamentos nos Razonetes")
+# 1. Carregar Contas (Selectbox)
+res_contas = supabase.table("contas").select("id, nome_conta").eq("user_id", user_id).execute()
+dicionario_contas = {c['nome_conta']: c['id'] for c in res_contas.data}
+lista_contas = ["-- Selecionar Conta --"] + list(dicionario_contas.keys())
 
-# --- CARREGAR CONTAS ---
-lista_para_selectbox = ["-- Selecionar Conta Existente --"]
-dicionario_contas = {}
-if user_id:
-    try:
-        res = supabase.table("contas").select("id, nome_conta").eq("user_id", user_id).execute()
-        for conta in res.data:
-            dicionario_contas[conta["nome_conta"]] = conta["id"]
-            lista_para_selectbox.append(conta["nome_conta"])
-    except: pass
-
-# --- FORMULÁRIO ---
+# 2. Formulário de Novo Lançamento
 with st.form("lancamento_form", clear_on_submit=True):
     st.subheader("📝 Criar Novo Lançamento")
-    col1, col2 = st.columns(2)
-    with col1: conta_sel = st.selectbox("Conta", lista_para_selectbox)
-    with col2: nova_conta = st.text_input("OU Criar Nova Conta", placeholder="Ex: Banco X")
+    c1, c2 = st.columns(2)
+    with c1: conta_sel = st.selectbox("Conta", lista_contas)
+    with c2: nova_conta = st.text_input("OU Criar Nova Conta")
+    
     justificativa = st.text_input("Justificativa")
     
-    c1, c2 = st.columns(2)
-    with c1: 
+    c3, c4 = st.columns(2)
+    with c3:
         data = st.date_input("Data", date.today())
-        valor = st.number_input("Valor (R$)", min_value=0.00, format="%.2f")
-    with c2:
-        operacao = st.selectbox("Operação", opcoes_operacao)
-        grupo = st.selectbox("Grupo", opcoes_grupo)
-        status = st.selectbox("Status", opcoes_status)
+        valor = st.number_input("Valor (R$)", min_value=0.0, format="%.2f")
+    with c4:
+        operacao = st.selectbox("Operação", ["Débito", "Crédito"])
+        grupo = st.selectbox("Grupo", ["Ativo Circulante", "Ativo Não Circulante", "Passivo Circulante", "Passivo Não Circulante", "Patrimônio Líquido", "Receitas", "Despesas", "Transação Interna"])
+        status = st.selectbox("Status", ["Entrada", "Saída", "Pendente", "Investimento", "Transação Interna"])
         
-    if st.form_submit_button("Gravar Lançamento"):
-        if (conta_sel == "-- Selecionar Conta Existente --" and not nova_conta) or not justificativa:
-            st.warning("Preencha a conta e a justificativa!")
-        else:
-            try:
-                conta_id = dicionario_contas[conta_sel] if not nova_conta else supabase.table("contas").insert({"user_id":user_id, "nome_conta":nova_conta, "grupo":grupo}).execute().data[0]["id"]
-                supabase.table("lancamentos").insert({"user_id":user_id, "conta_id":conta_id, "operacao":operacao, "valor":abs(valor), "data_lancamento":str(data), "status_financeiro":status, "grupo":grupo, "justificativa":justificativa}).execute()
-                st.success("Registrado!")
-                st.rerun()
-            except Exception as e: st.error(f"Erro: {e}")
+    if st.form_submit_button("Gravar"):
+        conta_id = dicionario_contas.get(conta_sel)
+        if not conta_id and nova_conta:
+            res_nova = supabase.table("contas").insert({"user_id": user_id, "nome_conta": nova_conta, "grupo": grupo}).execute()
+            conta_id = res_nova.data[0]['id']
+        
+        if conta_id:
+            supabase.table("lancamentos").insert({
+                "user_id": user_id, "conta_id": conta_id, "operacao": operacao, 
+                "valor": abs(valor), "data_lancamento": str(data), 
+                "status_financeiro": status, "grupo": grupo, "justificativa": justificativa
+            }).execute()
+            st.rerun()
 
-# --- HISTÓRICO CORRIGIDO ---
+# 3. Histórico (Correção do Erro de Exibição)
 st.markdown("---")
 st.subheader("📊 Histórico")
-if user_id:
-    res = supabase.table("lancamentos").select("*").eq("user_id", user_id).order("data_lancamento", desc=True).execute()
-    if res.data:
-        # 1. Criar DataFrame limpo
-        df = pd.DataFrame(res.data)
-        
-        # 2. Mapeamento de nomes
-        id_para_nome = {v: k for k, v in dicionario_contas.items()}
-        df["Conta"] = df["conta_id"].map(id_para_nome).fillna("N/A")
-        
-        # 3. Tratamento de colunas (Garante nomes únicos)
-        df = df.loc[:, ~df.columns.duplicated()] 
-        
-        # 4. Forçar tipos e valores positivos
-        df["valor"] = df["valor"].abs().astype(float)
-        df["data_lancamento"] = pd.to_datetime(df["data_lancamento"])
-        df["Excluir"] = False
-        
-        # 5. Selecionar colunas na ordem correta
-        colunas_finais = ["Excluir", "data_lancamento", "Conta", "justificativa", "operacao", "valor", "grupo", "status_financeiro"]
-        df_editavel = df[colunas_finais]
+res_lanc = supabase.table("lancamentos").select("*").eq("user_id", user_id).order("data_lancamento", desc=True).execute()
 
-        # 6. Renderizar Editor
-        edit = st.data_editor(
-            df_editavel,
-            use_container_width=True,
-            column_config={
-                "valor": st.column_config.NumberColumn("Valor (R$)", min_value=0.00, format="%.2f"),
-                "data_lancamento": st.column_config.DateColumn("Data"),
-                "Excluir": st.column_config.CheckboxColumn("🗑️", width="small"),
-                "operacao": st.column_config.SelectboxColumn("Operação", options=opcoes_operacao),
-                "grupo": st.column_config.SelectboxColumn("Grupo", options=opcoes_grupo),
-                "status_financeiro": st.column_config.SelectboxColumn("Status", options=opcoes_status),
-            }
-        )
-        
-        # --- BOTÕES DE AÇÃO ---
-        c1, c2 = st.columns(2)
-        with c1:
-            if st.button("💾 Salvar Edições"):
-                try:
-                    for i in range(len(edit)):
-                        # Apenas processar linhas não marcadas para excluir
-                        if not edit.iloc[i]["Excluir"]:
-                            row = edit.iloc[i]
-                            supabase.table("lancamentos").update({
-                                "valor": abs(float(row["valor"])),
-                                "operacao": row["operacao"],
-                                "grupo": row["grupo"],
-                                "justificativa": row["justificativa"],
-                                "data_lancamento": str(row["data_lancamento"])
-                            }).eq("id", df.iloc[i]["id"]).execute()
-                    st.success("Alterações salvas!")
-                    st.rerun()
-                except Exception as e: st.error(f"Erro ao salvar: {e}")
-        with c2:
-            if st.button("🗑️ Excluir Selecionados"):
-                ids_deletar = df.loc[edit["Excluir"], "id"].tolist()
-                if ids_deletar:
-                    supabase.table("lancamentos").delete().in_("id", ids_deletar).execute()
-                    st.rerun()
+if res_lanc.data:
+    df = pd.DataFrame(res_lanc.data)
+    # Limpeza para evitar conflito de colunas do Streamlit
+    df = df.loc[:, ~df.columns.duplicated()]
+    df["Excluir"] = False
+    
+    # Mapeamento para nomes de contas
+    id_to_name = {v: k for k, v in dicionario_contas.items()}
+    df["Conta"] = df["conta_id"].map(id_to_name)
+
+    # Organização das colunas (Justificativa ao lado do Valor)
+    cols_display = ["Excluir", "data_lancamento", "Conta", "valor", "justificativa", "operacao", "status_financeiro"]
+    df_edit = df[cols_display]
+
+    # Editor seguro
+    edit = st.data_editor(
+        df_edit, 
+        use_container_width=True,
+        column_config={
+            "valor": st.column_config.NumberColumn("Valor (R$)", format="%.2f"),
+            "justificativa": st.column_config.TextColumn("Justificativa"),
+            "Excluir": st.column_config.CheckboxColumn("Excluir")
+        }
+    )
+
+    if st.button("💾 Salvar/Excluir"):
+        for i in range(len(edit)):
+            # Lógica de Exclusão
+            if edit.iloc[i]["Excluir"]:
+                supabase.table("lancamentos").delete().eq("id", df.iloc[i]["id"]).execute()
+            # Lógica de Update
+            elif not edit.iloc[i].equals(df_edit.iloc[i]):
+                supabase.table("lancamentos").update({
+                    "valor": float(edit.iloc[i]["valor"]),
+                    "justificativa": edit.iloc[i]["justificativa"]
+                }).eq("id", df.iloc[i]["id"]).execute()
+        st.rerun()
