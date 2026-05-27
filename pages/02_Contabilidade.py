@@ -13,7 +13,12 @@ check_auth()
 supabase = get_supabase()
 show_auth_sidebar(supabase)
 
-user = st.session_state.user
+# Verifica se há um usuário autenticado
+user = st.session_state.get('user')
+if not user:
+    st.warning("Usuário não autenticado.")
+    st.stop()
+
 user_id = getattr(user, 'id', None) or (user.get('id') if isinstance(user, dict) else None)
 
 st.title("📚 Contabilidade por Grupos")
@@ -93,35 +98,39 @@ if user_id:
                                     </div>
                                 """, unsafe_allow_html=True)
 
-        # --- TAB 2: BALANCETE ---
+        # --- TAB 2: BALANCETE (FORMATO CONTÁBIL) ---
         with tab2:
             st.subheader("Balancete de Verificação")
+            
+            # Pivot table para consolidar movimentos
             pivot = df_p.pivot_table(index='nome_conta', columns='operacao', values='valor', aggfunc='sum', fill_value=0)
             
+            # Garantir colunas
             if 'Débito' not in pivot.columns: pivot['Débito'] = 0
             if 'Crédito' not in pivot.columns: pivot['Crédito'] = 0
-            pivot['Saldo'] = pivot['Débito'] - pivot['Crédito']
+            
+            # Cálculo de Saldo Devedor/Credor
+            pivot['Saldo Devedor'] = pivot.apply(lambda x: x['Débito'] - x['Crédito'] if x['Débito'] > x['Crédito'] else 0, axis=1)
+            pivot['Saldo Credor'] = pivot.apply(lambda x: x['Crédito'] - x['Débito'] if x['Crédito'] > x['Débito'] else 0, axis=1)
             
             # Métricas Totais
-            total_deb = pivot['Débito'].sum()
-            total_cre = pivot['Crédito'].sum()
-            
-            col_m1, col_m2 = st.columns(2)
-            col_m1.metric("Total Débitos", f"R$ {total_deb:,.2f}")
-            col_m2.metric("Total Créditos", f"R$ {total_cre:,.2f}")
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Total Débito", f"R$ {pivot['Débito'].sum():,.2f}")
+            col2.metric("Total Crédito", f"R$ {pivot['Crédito'].sum():,.2f}")
+            col3.metric("Dif. Saldo", f"R$ {(pivot['Saldo Devedor'].sum() - pivot['Saldo Credor'].sum()):,.2f}")
             
             # Exibição Formatada
-            pivot_display = pivot.copy()
-            pivot_display['Débito'] = pivot_display['Débito'].apply(lambda x: f"R$ {x:,.2f}")
-            pivot_display['Crédito'] = pivot_display['Crédito'].apply(lambda x: f"R$ {x:,.2f}")
-            pivot_display['Saldo'] = pivot_display['Saldo'].apply(lambda x: f"R$ {x:,.2f}")
+            display_cols = ['Débito', 'Crédito', 'Saldo Devedor', 'Saldo Credor']
+            pivot_display = pivot[display_cols].copy()
+            for col in display_cols:
+                pivot_display[col] = pivot_display[col].apply(lambda x: f"R$ {x:,.2f}")
             
             st.dataframe(pivot_display, use_container_width=True)
             
-            if abs(total_deb - total_cre) < 0.01:
-                st.success("✅ Balancete equilibrado: A soma de Débitos e Créditos é igual.")
+            if abs(pivot['Débito'].sum() - pivot['Crédito'].sum()) < 0.01:
+                st.success("✅ Balancete equilibrado: Débitos e Créditos conferem.")
             else:
-                st.error(f"⚠️ Balancete desequilibrado! Diferença: R$ {(total_deb - total_cre):,.2f}")
+                st.error("⚠️ Balancete desequilibrado! Verifique os lançamentos.")
 
         # --- TAB 3: BALANÇO PATRIMONIAL ---
         with tab3:
