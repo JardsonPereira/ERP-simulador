@@ -2,27 +2,28 @@ import streamlit as st
 from supabase import create_client
 from datetime import date
 
-# CONFIGURAÇÃO DIRETA (Use suas chaves)
-URL = "https://ejdvfuczdnpyhuosruey.supabase.co"
-KEY = "sb_publishable_6x5uVjXcIh4KnlpQSFOv_g_P6rnEw08"
+# 1. SEGURANÇA: Use o arquivo .streamlit/secrets.toml
+# No arquivo secrets.toml, coloque:
+# SUPABASE_URL = "sua_url"
+# SUPABASE_KEY = "sua_key"
+URL = st.secrets["SUPABASE_URL"]
+KEY = st.secrets["SUPABASE_KEY"]
 
-# Inicializa o cliente do Supabase
 supabase = create_client(URL, KEY)
 
-st.title("Lançamentos Financeiros")
+st.title("💰 Lançamentos Financeiros")
 
 # --- SEGURANÇA E SESSÃO ---
-# Mantemos sua lógica de verificar sessão antes de exibir qualquer coisa
 session = supabase.auth.get_session()
 
 if not session:
-    st.error("Sessão expirada. Por favor, faça login na página principal.")
+    st.error("Sessão expirada. Por favor, faça login.")
     st.stop()
 
 user_id = session.user.id
 
-# --- FORMULÁRIO DE LANÇAMENTO (Sua lógica mantida) ---
-with st.form("lancamento_form"):
+# --- FORMULÁRIO ---
+with st.form("lancamento_form", clear_on_submit=True):
     col1, col2 = st.columns(2)
     with col1:
         data = st.date_input("Data", date.today())
@@ -34,27 +35,28 @@ with st.form("lancamento_form"):
     submit = st.form_submit_button("Salvar Lançamento")
 
     if submit:
-        dados = {
-            "user_id": user_id,
-            "data": str(data),
-            "descricao": descricao,
-            "valor": valor,
-            "tipo": tipo
-        }
-        try:
-            # Envia para a tabela 'lancamentos'
-            supabase.table("lancamentos").insert(dados).execute()
-            st.success("Lançamento salvo com sucesso!")
-        except Exception as e:
-            st.error(f"Erro ao salvar: {e}")
+        if not descricao:
+            st.warning("A descrição é obrigatória!")
+        else:
+            dados = {
+                "user_id": user_id,
+                "data": str(data),
+                "descricao": descricao,
+                "valor": valor if tipo == "Receita" else -valor, # Lógica de sinal
+                "tipo": tipo
+            }
+            try:
+                supabase.table("lancamentos").insert(dados).execute()
+                st.success("Lançamento salvo!")
+                st.rerun() # Atualiza a página para mostrar o novo dado
+            except Exception as e:
+                st.error(f"Erro ao salvar: {e}")
 
 # --- LISTAGEM ---
-st.subheader("Seus Últimos Lançamentos")
-try:
-    response = supabase.table("lancamentos").select("*").eq("user_id", user_id).order("data", desc=True).execute()
-    if response.data:
-        st.table(response.data)
-    else:
-        st.info("Nenhum lançamento encontrado.")
-except Exception as e:
-    st.error(f"Erro ao carregar dados: {e}")
+st.subheader("Histórico")
+response = supabase.table("lancamentos").select("*").eq("user_id", user_id).order("data", desc=True).execute()
+
+if response.data:
+    st.dataframe(response.data, use_container_width=True)
+else:
+    st.info("Nenhum lançamento encontrado.")
