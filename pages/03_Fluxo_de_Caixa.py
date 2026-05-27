@@ -2,9 +2,8 @@ import streamlit as st
 import pandas as pd
 import sys
 import os
-import unicodedata
 
-# Configuração de caminhos e utilidades
+# Caminho para utils
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from utils import get_data_cached, check_auth, inject_css
 
@@ -21,60 +20,55 @@ contas = get_data_cached("contas", user_id)
 if lancamentos and contas:
     df = pd.DataFrame(lancamentos).merge(pd.DataFrame(contas), left_on='conta_id', right_on='id')
     
-    # 2. Limpeza e Conversão
-    df['data_lancamento'] = pd.to_datetime(df['data_lancamento'])
+    # 2. Conversão segura de valores
     df['valor'] = pd.to_numeric(df['valor'], errors='coerce').fillna(0)
+    df['data_lancamento'] = pd.to_datetime(df['data_lancamento'])
 
-    # Função para normalizar texto (remove acentos, espaços e padroniza para minúsculo)
-    def normalizar_texto(texto):
-        texto = str(texto).strip().lower()
-        nfkd = unicodedata.normalize('NFKD', texto)
-        return "".join([c for c in nfkd if not unicodedata.combining(c)])
-
-    # Criar coluna auxiliar para cálculo
-    df['status_norm'] = df['status_financeiro'].apply(normalizar_texto)
-
-    # 3. Definição de sinal (1 para Entrada, -1 para Saída)
-    def definir_multiplicador(status):
-        if 'entrada' in status:
+    # 3. Lógica Robusta de Identificação (O coração da solução)
+    def classificar_e_sinalizar(status):
+        s = str(status).strip().lower()
+        # Se contiver 'entrada' (ou variações), é positivo
+        if 'entrada' in s:
             return 1
-        elif 'saida' in status:
+        # Se contiver 'saida' ou 'saida' (tratando o 'ã' como 'a'), é negativo
+        elif 'saida' in s or 'saída' in s:
             return -1
         return 0
 
-    df['multiplicador'] = df['status_norm'].apply(definir_multiplicador)
-    df['valor_efetivo'] = df['valor'] * df['multiplicador']
+    df['sinal'] = df['status_financeiro'].apply(classificar_e_sinalizar)
+    df['valor_efetivo'] = df['valor'] * df['sinal']
 
-    # 4. Filtros de Período
+    # --- DEBUG: Verificação ---
+    # Isso vai listar na tela o que o código identificou como Entrada/Saída
+    with st.expander("🔍 Diagnóstico de Status (Clique para ver)"):
+        st.write(df[['status_financeiro', 'valor', 'sinal', 'valor_efetivo']].head(10))
+
+    # 4. Interface e Filtros
     c1, c2 = st.columns(2)
     d_inicio = c1.date_input("Início", value=df['data_lancamento'].min().date())
     d_fim = c2.date_input("Fim", value=df['data_lancamento'].max().date())
     
-    mask_periodo = (df['data_lancamento'].dt.date >= d_inicio) & (df['data_lancamento'].dt.date <= d_fim)
-    df_fc = df[mask_periodo].copy()
-    
-    # 5. Cálculos do Fluxo
+    mask = (df['data_lancamento'].dt.date >= d_inicio) & (df['data_lancamento'].dt.date <= d_fim)
+    df_fc = df[mask].copy()
+
+    # 5. Cálculos
     saldo_inicial = df[(df['data_lancamento'].dt.date < d_inicio)]['valor_efetivo'].sum()
     
-    entradas = df_fc[df_fc['multiplicador'] == 1]['valor'].sum()
-    saidas = df_fc[df_fc['multiplicador'] == -1]['valor'].sum()
+    # Soma de entradas (onde sinal == 1) e saídas (onde sinal == -1)
+    # Importante: usamos valor absoluto na exibição para não mostrar número negativo
+    total_entradas = df_fc[df_fc['sinal'] == 1]['valor'].sum()
+    total_saidas = df_fc[df_fc['sinal'] == -1]['valor'].sum()
     
     saldo_final = saldo_inicial + df_fc['valor_efetivo'].sum()
 
     # 6. Exibição
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Saldo Inicial", f"R$ {saldo_inicial:,.2f}")
-    col2.metric("Entradas", f"R$ {entradas:,.2f}")
-    col3.metric("Saídas", f"R$ {saidas:,.2f}")
+    col2.metric("Entradas", f"R$ {total_entradas:,.2f}")
+    col3.metric("Saídas", f"R$ {total_saidas:,.2f}")
     col4.metric("Saldo Final", f"R$ {saldo_final:,.2f}")
 
-    st.markdown("---")
-    st.subheader("Lançamentos no Período")
-    st.dataframe(
-        df_fc[['data_lancamento', 'nome_conta', 'status_financeiro', 'valor', 'justificativa']]
-        .sort_values('data_lancamento', ascending=False), 
-        use_container_width=True
-    )
+    st.dataframe(df_fc[['data_lancamento', 'status_financeiro', 'valor', 'justificativa']], use_container_width=True)
 
 else:
     st.info("Nenhum lançamento encontrado.")
