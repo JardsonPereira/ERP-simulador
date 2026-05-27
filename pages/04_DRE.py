@@ -1,49 +1,48 @@
 import streamlit as st
+import pandas as pd
+from utils import get_supabase, check_auth
 
-# Proteção de página: redireciona se não estiver logado
-if 'logged_in' not in st.session_state or not st.session_state.logged_in:
-    st.warning("Acesso não autorizado. Por favor, faça o login.")
-    st.stop()  # Impede que o restante do código seja carregado
+check_auth()
+supabase = get_supabase()
+user_id = st.session_state.user.id
 
-# --- Seu código existente da página começa aqui ---
-import streamlit as st, pandas as pd, sys, os
+st.title("📊 DRE - Demonstração do Resultado")
 
-# 1. Configurar o caminho para encontrar o utils.py
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+# Busca os dados
+res_lanc = supabase.table("lancamentos").select("*").eq("user_id", user_id).execute()
+res_contas = supabase.table("contas").select("*").eq("user_id", user_id).execute()
 
-# 2. Importar as funções
-from utils import get_supabase, get_data_cached, check_auth, inject_css
-
-# 3. Executar configurações iniciais
-check_auth()      # Verifica o login
-inject_css()      # Aplica o estilo
-supabase = get_supabase() # <--- ISTO CRIA A VARIÁVEL
-
-# A partir daqui, pode usar 'supabase' livremente no seu código
-# Exemplo: lancamentos = supabase.table("lancamentos").select("*").execute()
-import streamlit as st, pandas as pd, sys, os
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from utils import get_data_cached, check_auth, inject_css, gerar_relatorio_pdf
-
-check_auth(); inject_css()
-st.header("📈 DRE")
-lancamentos = get_data_cached("lancamentos", st.session_state.user.id)
-contas = get_data_cached("contas", st.session_state.user.id)
-
-if lancamentos and contas:
-    df = pd.DataFrame(lancamentos).merge(pd.DataFrame(contas), left_on='conta_id', right_on='id')
-    df['data_lancamento'] = pd.to_datetime(df['data_lancamento'])
-    c1, c2 = st.columns(2)
-    d_i = c1.date_input("Início", value=df['data_lancamento'].min().date())
-    d_f = c2.date_input("Fim", value=df['data_lancamento'].max().date())
-    df_dre = df[(df['data_lancamento'].dt.date >= d_i) & (df['data_lancamento'].dt.date <= d_f)]
+if res_lanc.data and res_contas.data:
+    df_l = pd.DataFrame(res_lanc.data)
+    df_c = pd.DataFrame(res_contas.data)
     
-    receita_bruta = df_dre[df_dre['grupo'] == 'RECEITAS']['valor'].sum()
-    cmv = df_dre[df_dre['grupo'] == 'CMV']['valor'].sum()
-    despesas = df_dre[df_dre['grupo'] == 'DESPESAS']['valor'].sum()
-    encargos = df_dre[df_dre['grupo'] == 'ENCARGOS FINANCEIROS']['valor'].sum()
+    # Merge com tratamento de colunas
+    df = df_l.merge(df_c, left_on='conta_id', right_on='id', suffixes=('_lanc', '_conta'))
     
-    dre_data = pd.DataFrame({"Descrição": ["(+) Receita Bruta", "(-) CMV", "(=) Lucro Bruto", "(-) Despesas", "(-) Encargos", "(=) Lucro Líquido"],
-                            "Valor": [receita_bruta, cmv, receita_bruta - cmv, despesas, encargos, (receita_bruta - cmv - despesas - encargos)]})
-    st.table(dre_data.set_index("Descrição").style.format("R$ {:,.2f}"))
-    if st.download_button("Baixar DRE PDF", data=gerar_relatorio_pdf("DRE", dre_data), file_name="dre.pdf"): st.success("Download iniciado!")
+    # --- CORREÇÃO DO KEYERROR ---
+    # Busca 'grupo' de forma segura, independente do nome que o merge deu
+    df['grupo'] = df.get('grupo_lanc', df.get('grupo_conta', 'Outros'))
+    
+    # Converter valor para numérico
+    df['valor'] = pd.to_numeric(df['valor'], errors='coerce')
+
+    # Filtros de Categoria (Assumindo que os nomes no seu banco são 'RECEITAS', 'DESPESAS', etc)
+    # Ajuste os nomes conforme o que você gravou no banco
+    receitas = df[df['grupo'].str.upper() == 'RECEITAS']['valor'].sum()
+    custos = df[df['grupo'].str.upper() == 'CUSTOS']['valor'].sum()
+    despesas = df[df['grupo'].str.upper() == 'DESPESAS']['valor'].sum()
+    
+    lucro_bruto = receitas - custos
+    lucro_liquido = lucro_bruto - despesas
+    
+    # Exibição
+    st.metric("Receita Bruta", f"R$ {receitas:,.2f}")
+    st.metric("Custos", f"R$ {custos:,.2f}")
+    st.markdown("---")
+    st.metric("Lucro Bruto", f"R$ {lucro_bruto:,.2f}")
+    st.metric("Despesas", f"R$ {despesas:,.2f}")
+    st.markdown("---")
+    st.metric("Lucro Líquido", f"R$ {lucro_liquido:,.2f}", delta_color="normal")
+
+else:
+    st.info("Nenhum dado encontrado para gerar o DRE.")
