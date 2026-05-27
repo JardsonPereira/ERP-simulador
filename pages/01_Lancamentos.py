@@ -19,11 +19,12 @@ st.title("💰 Lançamentos nos Razonetes")
 st.markdown("Efetue novos lançamentos, edite, exclua ou limpe o histórico.")
 
 # --- CARREGAR CONTAS CADASTRADAS ---
-lista_para_selectbox = ["-- Selecionar Conta --"]
+lista_para_selectbox = ["-- Selecionar Conta Existente --"]
 dicionario_contas = {}
 
 if user_id:
     try:
+        # Busca as contas na tabela 'contas' para popular a lista
         resposta_contas = supabase.table("contas").select("id, nome_conta").eq("user_id", user_id).execute()
         if resposta_contas.data:
             for conta in resposta_contas.data:
@@ -37,11 +38,15 @@ if user_id:
 with st.form("lancamento_form", clear_on_submit=True):
     st.subheader("📝 Criar Novo Lançamento")
     
-    # Campo para selecionar a conta existente
-    conta_escolhida = st.selectbox("Conta Contábil (Razonete)", lista_para_selectbox)
-    
+    # --- SEÇÃO DE SELEÇÃO OU CRIAÇÃO DE CONTA ---
+    col_conta1, col_conta2 = st.columns(2)
+    with col_conta1:
+        conta_escolhida = st.selectbox("Selecione uma Conta", lista_para_selectbox)
+    with col_conta2:
+        nova_conta_nome = st.text_input("OU Digite para CRIAR uma Nova Conta", placeholder="Ex: Banco Inter, Caixa")
     st.markdown("---")
 
+    # --- RESTANTE DO FORMULÁRIO ---
     col1, col2 = st.columns(2)
     with col1:
         data_input = st.date_input("Data do Lançamento", date.today())
@@ -60,27 +65,50 @@ with st.form("lancamento_form", clear_on_submit=True):
         
     submit = st.form_submit_button("Confirmar e Gravar Lançamento")
 
+    # --- LÓGICA DE SALVAMENTO ---
     if submit:
-        if conta_escolhida == "-- Selecionar Conta --":
-            st.warning("Por favor, selecione uma conta contábil para o lançamento!")
+        if conta_escolhida == "-- Selecionar Conta Existente --" and not nova_conta_nome:
+            st.warning("Você precisa selecionar uma conta existente OU digitar o nome de uma nova conta!")
         elif not user_id:
             st.error("Sessão inválida. Faça login novamente.")
         else:
+            id_real_da_conta = None
+            
             try:
-                id_real_da_conta = dicionario_contas[conta_escolhida]
+                # 1. Se digitou uma nova conta, cria ela no banco primeiro
+                if nova_conta_nome.strip():
+                    dados_nova_conta = {
+                        "user_id": user_id,
+                        "nome_conta": nova_conta_nome.strip(),
+                        "grupo": grupo
+                    }
+                    resultado_conta = supabase.table("contas").insert(dados_nova_conta).execute()
+                    
+                    if resultado_conta.data:
+                        id_real_da_conta = resultado_conta.data[0]["id"]
+                        st.info(f"Nova conta '{nova_conta_nome}' criada com sucesso!")
+                
+                # 2. Se não digitou conta nova, usa a que foi selecionada
+                else:
+                    id_real_da_conta = dicionario_contas[conta_escolhida]
 
-                dados_lancamento = {
-                    "user_id": user_id,
-                    "conta_id": id_real_da_conta,
-                    "operacao": operacao,
-                    "valor": valor if status in ["Entrada", "Investimento"] else -valor,
-                    "data_lancamento": str(data_input),
-                    "status_financeiro": status,
-                    "grupo": grupo
-                }
-                supabase.table("lancamentos").insert(dados_lancamento).execute()
-                st.success("Lançamento registrado com sucesso!")
-                st.rerun() 
+                # 3. Faz o lançamento vinculado à conta
+                if id_real_da_conta:
+                    dados_lancamento = {
+                        "user_id": user_id,
+                        "conta_id": id_real_da_conta,
+                        "operacao": operacao,
+                        "valor": valor if status in ["Entrada", "Investimento"] else -valor,
+                        "data_lancamento": str(data_input),
+                        "status_financeiro": status,
+                        "grupo": grupo
+                        # Justificativa foi removida do envio conforme solicitado
+                    }
+                    
+                    supabase.table("lancamentos").insert(dados_lancamento).execute()
+                    st.success("Lançamento registrado com sucesso!")
+                    st.rerun() 
+                    
             except Exception as e:
                 st.error(f"Erro ao processar operação: {e}")
 
@@ -113,7 +141,8 @@ if user_id:
                     "valor": st.column_config.NumberColumn("Valor (R$)", format="%.2f"),
                     "operacao": st.column_config.SelectboxColumn("Operação", options=["Débito", "Crédito"]),
                     "grupo": st.column_config.SelectboxColumn("Grupo", options=["Ativo", "Passivo", "Patrimônio Líquido", "Receitas", "Despesas", "Custos"]),
-                    "status_financeiro": st.column_config.SelectboxColumn("Status", options=["Entrada", "Saída", "Pendente", "Investimento", "Transação Interna"])
+                    "status_financeiro": st.column_config.SelectboxColumn("Status", options=["Entrada", "Saída", "Pendente", "Investimento", "Transação Interna"]),
+                    "justificativa": None # Mantém oculta na tabela já que não está sendo usada no momento
                 }
             )
             
