@@ -3,7 +3,7 @@ import sys
 import os
 from datetime import date
 
-# --- CONFIGURAÇÃO ---
+# --- CONFIGURAÇÃO E AUTENTICAÇÃO ---
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from utils import get_supabase, check_auth, show_auth_sidebar
 
@@ -29,15 +29,16 @@ if user_id:
         for conta in res.data:
             dicionario_contas[conta["nome_conta"]] = conta["id"]
             lista_para_selectbox.append(conta["nome_conta"])
-    except: pass
+    except Exception as e: st.error(f"Erro ao carregar contas: {e}")
 
-# --- FORMULÁRIO ---
+# --- FORMULÁRIO DE LANÇAMENTO ---
 with st.form("lancamento_form", clear_on_submit=True):
     st.subheader("📝 Criar Novo Lançamento")
     col1, col2 = st.columns(2)
-    with col1: conta_escolhida = st.selectbox("Conta", lista_para_selectbox)
+    with col1: conta_sel = st.selectbox("Conta", lista_para_selectbox)
     with col2: nova_conta = st.text_input("OU Criar Nova Conta", placeholder="Ex: Banco X")
     justificativa = st.text_input("Justificativa")
+    
     c1, c2 = st.columns(2)
     with c1: 
         data = st.date_input("Data", date.today())
@@ -48,11 +49,11 @@ with st.form("lancamento_form", clear_on_submit=True):
         status = st.selectbox("Status", ["Entrada", "Saída", "Pendente", "Investimento", "Transação Interna"])
         
     if st.form_submit_button("Gravar Lançamento"):
-        if (conta_escolhida == "-- Selecionar Conta Existente --" and not nova_conta) or not justificativa:
+        if (conta_sel == "-- Selecionar Conta Existente --" and not nova_conta) or not justificativa:
             st.warning("Preencha a conta e a justificativa!")
         else:
             try:
-                conta_id = dicionario_contas[conta_escolhida] if not nova_conta else supabase.table("contas").insert({"user_id":user_id, "nome_conta":nova_conta, "grupo":grupo}).execute().data[0]["id"]
+                conta_id = dicionario_contas[conta_sel] if not nova_conta else supabase.table("contas").insert({"user_id":user_id, "nome_conta":nova_conta, "grupo":grupo}).execute().data[0]["id"]
                 supabase.table("lancamentos").insert({"user_id":user_id, "conta_id":conta_id, "operacao":operacao, "valor":valor, "data_lancamento":str(data), "status_financeiro":status, "grupo":grupo, "justificativa":justificativa}).execute()
                 st.success("Registrado!")
                 st.rerun()
@@ -67,15 +68,27 @@ if user_id:
         id_para_nome = {v: k for k, v in dicionario_contas.items()}
         for item in res.data: item.update({"Excluir": False, "Conta": id_para_nome.get(item["conta_id"], "N/A")})
         
-        edit = st.data_editor(res.data, use_container_width=True, disabled=["id", "user_id", "conta_id", "Conta"], column_config={"valor": st.column_config.NumberColumn(min_value=0.00)})
+        # Tabela simplificada: Apenas dados essenciais e valores positivos
+        edit = st.data_editor(
+            res.data, 
+            use_container_width=True, 
+            disabled=["id", "user_id", "conta_id", "Conta"], 
+            column_order=["Excluir", "data_lancamento", "Conta", "justificativa", "operacao", "valor", "grupo", "status_financeiro"],
+            column_config={
+                "valor": st.column_config.NumberColumn(min_value=0.00, format="%.2f"),
+                "Excluir": st.column_config.CheckboxColumn("🗑️", width="small")
+            }
+        )
         
-        if st.button("💾 Salvar Edições"):
-            for i, row in enumerate(edit):
-                if row != res.data[i]:
-                    supabase.table("lancamentos").update({"valor": abs(row["valor"]), "operacao": row["operacao"], "grupo": row["grupo"], "justificativa": row["justificativa"]}).eq("id", row["id"]).execute()
-            st.rerun()
-            
-        if st.button("🗑️ Excluir Selecionados"):
-            ids = [r["id"] for r in edit if r["Excluir"]]
-            supabase.table("lancamentos").delete().in_("id", ids).execute()
-            st.rerun()
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("💾 Salvar Edições"):
+                for i, row in enumerate(edit):
+                    if row != res.data[i]:
+                        supabase.table("lancamentos").update({"valor": abs(row["valor"]), "operacao": row["operacao"], "grupo": row["grupo"], "justificativa": row["justificativa"]}).eq("id", row["id"]).execute()
+                st.rerun()
+        with c2:
+            if st.button("🗑️ Excluir Selecionados"):
+                ids = [r["id"] for r in edit if r["Excluir"]]
+                supabase.table("lancamentos").delete().in_("id", ids).execute()
+                st.rerun()
