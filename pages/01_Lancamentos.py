@@ -8,16 +8,16 @@ from datetime import date
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from utils import get_supabase, check_auth, show_auth_sidebar
 
+# --- AUTENTICAÇÃO ---
 user = check_auth()
 supabase = get_supabase()
 show_auth_sidebar(supabase)
 user_id = getattr(user, 'id', None) or (user.get('id') if isinstance(user, dict) else None)
 
-opcoes_grupo = [
-    "Ativo Circulante", "Ativo Não Circulante", "Passivo Circulante", 
-    "Passivo Não Circulante", "Patrimônio Líquido", "Receitas", 
-    "Despesas", "Transação Interna"
-]
+# --- DEFINIÇÕES ---
+opcoes_grupo = ["Ativo Circulante", "Ativo Não Circulante", "Passivo Circulante", 
+                "Passivo Não Circulante", "Patrimônio Líquido", "Receitas", 
+                "Despesas", "Transação Interna"]
 opcoes_operacao = ["Débito", "Crédito"]
 opcoes_status = ["Entrada", "Saída", "Pendente", "Investimento", "Transação Interna"]
 
@@ -62,55 +62,56 @@ with st.form("lancamento_form", clear_on_submit=True):
                 st.rerun()
             except Exception as e: st.error(f"Erro: {e}")
 
-# --- HISTÓRICO LIMPO E SEGURO ---
+# --- HISTÓRICO CORRIGIDO ---
 st.markdown("---")
 st.subheader("📊 Histórico")
 if user_id:
     res = supabase.table("lancamentos").select("*").eq("user_id", user_id).order("data_lancamento", desc=True).execute()
     if res.data:
-        # CONVERSÃO PARA DATAFRAME E LIMPEZA
+        # 1. Criar DataFrame limpo
         df = pd.DataFrame(res.data)
         
-        # Mapeamento e tratamento de dados
+        # 2. Mapeamento de nomes
         id_para_nome = {v: k for k, v in dicionario_contas.items()}
         df["Conta"] = df["conta_id"].map(id_para_nome).fillna("N/A")
+        
+        # 3. Tratamento de colunas (Garante nomes únicos)
+        df = df.loc[:, ~df.columns.duplicated()] 
+        
+        # 4. Forçar tipos e valores positivos
         df["valor"] = df["valor"].abs().astype(float)
+        df["data_lancamento"] = pd.to_datetime(df["data_lancamento"])
         df["Excluir"] = False
         
-        # Garantir que não haja colunas duplicadas
-        df = df.loc[:, ~df.columns.duplicated()]
+        # 5. Selecionar colunas na ordem correta
+        colunas_finais = ["Excluir", "data_lancamento", "Conta", "justificativa", "operacao", "valor", "grupo", "status_financeiro"]
+        df_editavel = df[colunas_finais]
 
-        # Selecionar apenas o essencial
-        cols_mostrar = ["Excluir", "data_lancamento", "Conta", "justificativa", "operacao", "valor", "grupo", "status_financeiro"]
-        df_edit = df[cols_mostrar].copy()
-
-        # Renderização do Editor (com tratamento de tipos)
+        # 6. Renderizar Editor
         edit = st.data_editor(
-            df_edit,
+            df_editavel,
             use_container_width=True,
             column_config={
                 "valor": st.column_config.NumberColumn("Valor (R$)", min_value=0.00, format="%.2f"),
+                "data_lancamento": st.column_config.DateColumn("Data"),
                 "Excluir": st.column_config.CheckboxColumn("🗑️", width="small"),
                 "operacao": st.column_config.SelectboxColumn("Operação", options=opcoes_operacao),
                 "grupo": st.column_config.SelectboxColumn("Grupo", options=opcoes_grupo),
                 "status_financeiro": st.column_config.SelectboxColumn("Status", options=opcoes_status),
-                "data_lancamento": st.column_config.DateColumn("Data")
             }
         )
         
-        # Lógica de botões
+        # --- BOTÕES DE AÇÃO ---
         c1, c2 = st.columns(2)
         with c1:
             if st.button("💾 Salvar Edições"):
                 try:
-                    # Comparar o editor com o original
                     for i in range(len(edit)):
-                        if not edit.iloc[i]["Excluir"]: # Apenas se não deletado
-                            # Atualiza apenas se mudou
+                        # Apenas processar linhas não marcadas para excluir
+                        if not edit.iloc[i]["Excluir"]:
                             row = edit.iloc[i]
-                            # Usa o ID da linha original (df.iloc[i]["id"])
                             supabase.table("lancamentos").update({
-                                "valor": float(row["valor"]),
+                                "valor": abs(float(row["valor"])),
                                 "operacao": row["operacao"],
                                 "grupo": row["grupo"],
                                 "justificativa": row["justificativa"],
