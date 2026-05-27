@@ -28,20 +28,23 @@ def classificar_conta(grupo):
     return '8. Outros'
 
 if user_id:
+    # Busca os dados atualizados
     res_lanc = supabase.table("lancamentos").select("*").eq("user_id", user_id).execute()
     res_contas = supabase.table("contas").select("*").eq("user_id", user_id).execute()
 
     if res_lanc.data and res_contas.data:
         df = pd.DataFrame(res_lanc.data).merge(pd.DataFrame(res_contas.data), left_on='conta_id', right_on='id', suffixes=('_lanc', '_conta'))
         df['data_lancamento'] = pd.to_datetime(df['data_lancamento'])
-        if 'grupo' not in df.columns:
-            df['grupo'] = df['grupo_lanc'] if 'grupo_lanc' in df.columns else df.get('grupo_conta', 'Outros')
         
-        # Filtro
+        # Filtro de Período
+        st.markdown("---")
         c1, c2 = st.columns(2)
         d_inicio = c1.date_input("Data Início", value=df['data_lancamento'].min().date())
         d_fim = c2.date_input("Data Fim", value=df['data_lancamento'].max().date())
+        
         df_p = df[(df['data_lancamento'].dt.date >= d_inicio) & (df['data_lancamento'].dt.date <= d_fim)].copy()
+        
+        # Garante valores positivos e categoriza
         df_p['valor'] = df_p['valor'].abs()
         df_p['Categoria'] = df_p['grupo'].apply(classificar_conta)
 
@@ -63,32 +66,28 @@ if user_id:
                                 saldo_final = abs(t_deb - t_cre)
                                 tipo_saldo = "Devedor" if t_deb >= t_cre else "Credor"
                                 
-                                # Criar lista discreta de justificativas
-                                justificativas = "<br>".join([f"• {j}" for j in d_c['justificativa'].unique()])
+                                # Justificativas discretas
+                                justificativas = "<br>".join([f"<small style='color: #666;'>• {j}</small>" for j in d_c['justificativa'].unique()])
                                 
                                 st.markdown(f"""
-                                    <div style="border: 1px solid #ddd; padding: 10px; border-radius: 5px; text-align: center; margin-bottom: 10px; background-color: #f9f9f9;">
-                                        <b>{conta}</b>
-                                        <div style="border-top: 2px solid black; margin-top: 5px;"></div>
-                                        <div style="display: flex; border-left: 2px solid black; height: 50px;">
-                                            <div style="flex: 1; text-align: left; padding-left: 5px; font-size: 0.8em; color: #2e7d32;"><b>D</b>: {t_deb:,.2f}</div>
-                                            <div style="flex: 1; text-align: right; padding-right: 5px; font-size: 0.8em; color: #c62828;"><b>C</b>: {t_cre:,.2f}</div>
+                                    <div style="border: 1px solid #ddd; padding: 10px; border-radius: 5px; background: #fafafa;">
+                                        <div style="text-align: center; font-weight: bold;">{conta}</div>
+                                        <div style="border-top: 2px solid #333; margin: 5px 0;"></div>
+                                        <div style="display: flex; border-left: 2px solid #333; height: 50px;">
+                                            <div style="flex: 1; text-align: left; padding: 5px; font-size: 0.8em; color: green;"><b>D</b>: {t_deb:,.2f}</div>
+                                            <div style="flex: 1; text-align: right; padding: 5px; font-size: 0.8em; color: red;"><b>C</b>: {t_cre:,.2f}</div>
                                         </div>
-                                        <div style="border-top: 1px solid #eee; margin: 5px 0; padding-top: 5px; font-size: 0.75em; color: #555; text-align: left;">
+                                        <div style="margin-top: 5px; padding: 5px; font-size: 0.75em; border-top: 1px dashed #ccc;">
                                             {justificativas}
                                         </div>
-                                        <div style="border-top: 1px solid #ccc; padding-top: 5px; font-size: 0.9em; font-weight: bold;">
-                                            Saldo {tipo_saldo}: R$ {saldo_final:,.2f}
-                                        </div>
+                                        <div style="text-align: center; font-size: 0.9em; padding-top: 5px; font-weight: bold;">Saldo {tipo_saldo}: R$ {saldo_final:,.2f}</div>
                                     </div>
                                 """, unsafe_allow_html=True)
 
         with tab2:
             st.markdown("### Balancete de Verificação")
             pivot = df_p.pivot_table(index='nome_conta', columns='operacao', values='valor', aggfunc='sum', fill_value=0)
-            if 'Débito' not in pivot.columns: pivot['Débito'] = 0
-            if 'Crédito' not in pivot.columns: pivot['Crédito'] = 0
-            pivot = pivot[['Débito', 'Crédito']]
+            pivot = pivot.reindex(columns=['Débito', 'Crédito'], fill_value=0)
             pivot['Saldo Devedor'] = (pivot['Débito'] - pivot['Crédito']).clip(lower=0)
             pivot['Saldo Credor'] = (pivot['Crédito'] - pivot['Débito']).clip(lower=0)
             pivot.loc['TOTAIS'] = pivot.sum()
