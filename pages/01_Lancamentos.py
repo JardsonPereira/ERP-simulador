@@ -15,12 +15,10 @@ show_auth_sidebar(supabase)
 user_id = getattr(user, 'id', None) or (user.get('id') if isinstance(user, dict) else None)
 
 # --- OPÇÕES DO GRUPO CONTÁBIL ---
-# Lista atualizada conforme solicitado
+# Lista atualizada sem "Ativo" e "Passivo" genéricos
 opcoes_grupo = [
-    "Ativo", 
     "Ativo Circulante", 
     "Ativo Não Circulante", 
-    "Passivo", 
     "Passivo Circulante", 
     "Passivo Não Circulante", 
     "Patrimônio Líquido", 
