@@ -56,10 +56,13 @@ with st.form("lancamento_form", clear_on_submit=True):
         nova_conta_nome = st.text_input("OU Digite para CRIAR uma Nova Conta", placeholder="Ex: Banco Inter, Caixa")
     st.markdown("---")
 
+    # Campo de Justificativa adicionado
+    justificativa = st.text_input("Justificativa / Histórico", placeholder="Ex: Pagamento de aluguel mensal, Compra de estoque...")
+    
     col1, col2 = st.columns(2)
     with col1:
         data_input = st.date_input("Data do Lançamento", date.today())
-        valor = st.number_input("Valor (R$)", min_value=0.01, format="%.2f")
+        valor = st.number_input("Valor (R$)", min_value=0.01, format="%.2f") # min_value=0.01 impede negativos na tela
         
     with col2:
         operacao = st.selectbox("Operação", ["Débito", "Crédito"])
@@ -75,6 +78,8 @@ with st.form("lancamento_form", clear_on_submit=True):
     if submit:
         if conta_escolhida == "-- Selecionar Conta Existente --" and not nova_conta_nome:
             st.warning("Você precisa selecionar uma conta existente OU digitar o nome de uma nova conta!")
+        elif not justificativa.strip():
+            st.warning("A justificativa é obrigatória!")
         elif not user_id:
             st.error("Sessão inválida. Faça login novamente.")
         else:
@@ -98,10 +103,11 @@ with st.form("lancamento_form", clear_on_submit=True):
                         "user_id": user_id,
                         "conta_id": id_real_da_conta,
                         "operacao": operacao,
-                        "valor": valor if status in ["Entrada", "Investimento"] else -valor,
+                        "valor": valor, # Agora o valor é salvo estritamente positivo
                         "data_lancamento": str(data_input),
                         "status_financeiro": status,
-                        "grupo": grupo
+                        "grupo": grupo,
+                        "justificativa": justificativa # Enviando a justificativa
                     }
                     supabase.table("lancamentos").insert(dados_lancamento).execute()
                     st.success("Lançamento registrado com sucesso!")
@@ -118,32 +124,31 @@ if user_id:
         response = supabase.table("lancamentos").select("*").eq("user_id", user_id).order("data_lancamento", desc=True).execute()
         
         if response.data:
-            st.write("💡 *Dica de Edição: Dê dois cliques em cima de qualquer Data, Valor, Operação ou Grupo na tabela abaixo para editá-los diretamente.*")
+            st.write("💡 *Dica de Edição: Dê dois cliques em cima de qualquer campo na tabela abaixo para editá-lo diretamente.*")
             
-            # Criar um dicionário reverso para descobrir o Nome da Conta a partir do ID
             id_para_nome = {v: k for k, v in dicionario_contas.items()}
             
             dados_com_selecao = []
             for item in response.data:
                 item["Excluir"] = False
-                # Adiciona o nome real da conta na linha
                 item["Conta_Nome"] = id_para_nome.get(item["conta_id"], "Conta Desconhecida")
                 dados_com_selecao.append(item)
             
-            # Configuração da tabela limpa
+            # Configuração da tabela com a coluna Justificativa
             tabela_editavel = st.data_editor(
                 dados_com_selecao,
                 use_container_width=True,
-                disabled=["id", "user_id", "conta_id", "Conta_Nome"], # Impede a edição de IDs internos
-                column_order=["Excluir", "data_lancamento", "Conta_Nome", "operacao", "valor", "grupo", "status_financeiro"],
+                disabled=["id", "user_id", "conta_id", "Conta_Nome"],
+                column_order=["Excluir", "data_lancamento", "Conta_Nome", "justificativa", "operacao", "valor", "grupo", "status_financeiro"],
                 column_config={
                     "Excluir": st.column_config.CheckboxColumn("🗑️ Excluir?", default=False),
                     "id": None,          
                     "user_id": None,     
-                    "conta_id": None, # Oculta o ID numérico da conta
-                    "Conta_Nome": st.column_config.TextColumn("Conta (Razonete)"), # Mostra o nome bonito
+                    "conta_id": None, 
+                    "Conta_Nome": st.column_config.TextColumn("Conta (Razonete)"),
                     "data_lancamento": st.column_config.TextColumn("Data"),
-                    "valor": st.column_config.NumberColumn("Valor (R$)", format="%.2f"),
+                    "justificativa": st.column_config.TextColumn("Justificativa"),
+                    "valor": st.column_config.NumberColumn("Valor (R$)", format="%.2f", min_value=0.01), # Impede edições negativas
                     "operacao": st.column_config.SelectboxColumn("Operação", options=["Débito", "Crédito"]),
                     "grupo": st.column_config.SelectboxColumn("Grupo", options=opcoes_grupo),
                     "status_financeiro": st.column_config.SelectboxColumn("Status", options=["Entrada", "Saída", "Pendente", "Investimento", "Transação Interna"])
@@ -161,15 +166,17 @@ if user_id:
                                     linha_original["operacao"] != linha_editada["operacao"] or 
                                     linha_original["grupo"] != linha_editada["grupo"] or 
                                     linha_original["status_financeiro"] != linha_editada["status_financeiro"] or
-                                    linha_original["data_lancamento"] != linha_editada["data_lancamento"]):
+                                    linha_original["data_lancamento"] != linha_editada["data_lancamento"] or
+                                    linha_original.get("justificativa") != linha_editada.get("justificativa")):
                                     
                                     id_linha = linha_original["id"]
                                     dados_atualizados = {
                                         "data_lancamento": str(linha_editada["data_lancamento"]),
-                                        "valor": float(linha_editada["valor"]),
+                                        "valor": abs(float(linha_editada["valor"])), # Força ser absoluto/positivo caso tentem burlar
                                         "operacao": linha_editada["operacao"],
                                         "grupo": linha_editada["grupo"],
-                                        "status_financeiro": linha_editada["status_financeiro"]
+                                        "status_financeiro": linha_editada["status_financeiro"],
+                                        "justificativa": linha_editada.get("justificativa", "")
                                     }
                                     supabase.table("lancamentos").update(dados_atualizados).eq("id", id_linha).execute()
                             st.success("Edições salvas com sucesso!")
