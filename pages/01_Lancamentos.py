@@ -29,9 +29,9 @@ if user_id:
         for conta in res.data:
             dicionario_contas[conta["nome_conta"]] = conta["id"]
             lista_para_selectbox.append(conta["nome_conta"])
-    except Exception as e: st.error(f"Erro ao carregar contas: {e}")
+    except: pass
 
-# --- FORMULÁRIO DE LANÇAMENTO ---
+# --- FORMULÁRIO ---
 with st.form("lancamento_form", clear_on_submit=True):
     st.subheader("📝 Criar Novo Lançamento")
     col1, col2 = st.columns(2)
@@ -54,40 +54,41 @@ with st.form("lancamento_form", clear_on_submit=True):
         else:
             try:
                 conta_id = dicionario_contas[conta_sel] if not nova_conta else supabase.table("contas").insert({"user_id":user_id, "nome_conta":nova_conta, "grupo":grupo}).execute().data[0]["id"]
-                supabase.table("lancamentos").insert({"user_id":user_id, "conta_id":conta_id, "operacao":operacao, "valor":valor, "data_lancamento":str(data), "status_financeiro":status, "grupo":grupo, "justificativa":justificativa}).execute()
+                supabase.table("lancamentos").insert({"user_id":user_id, "conta_id":conta_id, "operacao":operacao, "valor":abs(valor), "data_lancamento":str(data), "status_financeiro":status, "grupo":grupo, "justificativa":justificativa}).execute()
                 st.success("Registrado!")
                 st.rerun()
             except Exception as e: st.error(f"Erro: {e}")
 
-# --- HISTÓRICO ---
+# --- HISTÓRICO VISUALMENTE LIMPO ---
 st.markdown("---")
 st.subheader("📊 Histórico")
 if user_id:
     res = supabase.table("lancamentos").select("*").eq("user_id", user_id).order("data_lancamento", desc=True).execute()
     if res.data:
         id_para_nome = {v: k for k, v in dicionario_contas.items()}
-        for item in res.data: item.update({"Excluir": False, "Conta": id_para_nome.get(item["conta_id"], "N/A")})
+        for item in res.data: 
+            item.update({"Excluir": False, "Conta": id_para_nome.get(item["conta_id"], "N/A"), "valor": abs(item["valor"])})
         
-        # Tabela simplificada: Apenas dados essenciais e valores positivos
         edit = st.data_editor(
             res.data, 
             use_container_width=True, 
             disabled=["id", "user_id", "conta_id", "Conta"], 
             column_order=["Excluir", "data_lancamento", "Conta", "justificativa", "operacao", "valor", "grupo", "status_financeiro"],
             column_config={
-                "valor": st.column_config.NumberColumn(min_value=0.00, format="%.2f"),
+                "valor": st.column_config.NumberColumn("Valor (R$)", min_value=0.00, format="%.2f"),
+                "data_lancamento": st.column_config.DateColumn("Data"),
                 "Excluir": st.column_config.CheckboxColumn("🗑️", width="small")
             }
         )
         
-        c1, c2 = st.columns(2)
-        with c1:
+        col_b1, col_b2 = st.columns(2)
+        with col_b1:
             if st.button("💾 Salvar Edições"):
                 for i, row in enumerate(edit):
                     if row != res.data[i]:
                         supabase.table("lancamentos").update({"valor": abs(row["valor"]), "operacao": row["operacao"], "grupo": row["grupo"], "justificativa": row["justificativa"]}).eq("id", row["id"]).execute()
                 st.rerun()
-        with c2:
+        with col_b2:
             if st.button("🗑️ Excluir Selecionados"):
                 ids = [r["id"] for r in edit if r["Excluir"]]
                 supabase.table("lancamentos").delete().in_("id", ids).execute()
