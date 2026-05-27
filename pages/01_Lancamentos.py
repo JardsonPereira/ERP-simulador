@@ -14,6 +14,21 @@ show_auth_sidebar(supabase)
 
 user_id = getattr(user, 'id', None) or (user.get('id') if isinstance(user, dict) else None)
 
+# --- OPÇÕES DO GRUPO CONTÁBIL ---
+# Lista atualizada conforme solicitado
+opcoes_grupo = [
+    "Ativo", 
+    "Ativo Circulante", 
+    "Ativo Não Circulante", 
+    "Passivo", 
+    "Passivo Circulante", 
+    "Passivo Não Circulante", 
+    "Patrimônio Líquido", 
+    "Receitas", 
+    "Despesas", 
+    "Transação Interna"
+]
+
 # --- INTERFACE PRINCIPAL ---
 st.title("💰 Lançamentos nos Razonetes")
 st.markdown("Efetue novos lançamentos, edite, exclua ou limpe o histórico.")
@@ -54,10 +69,7 @@ with st.form("lancamento_form", clear_on_submit=True):
         
     with col2:
         operacao = st.selectbox("Operação", ["Débito", "Crédito"])
-        grupo = st.selectbox(
-            "Grupo Contábil", 
-            ["Ativo", "Passivo", "Patrimônio Líquido", "Receitas", "Despesas", "Custos"]
-        )
+        grupo = st.selectbox("Grupo Contábil", opcoes_grupo)
         status = st.selectbox(
             "Status Financeiro", 
             ["Entrada", "Saída", "Pendente", "Investimento", "Transação Interna"]
@@ -102,7 +114,6 @@ with st.form("lancamento_form", clear_on_submit=True):
                         "data_lancamento": str(data_input),
                         "status_financeiro": status,
                         "grupo": grupo
-                        # Justificativa foi removida do envio conforme solicitado
                     }
                     
                     supabase.table("lancamentos").insert(dados_lancamento).execute()
@@ -140,9 +151,9 @@ if user_id:
                     "data_lancamento": st.column_config.TextColumn("Data"),
                     "valor": st.column_config.NumberColumn("Valor (R$)", format="%.2f"),
                     "operacao": st.column_config.SelectboxColumn("Operação", options=["Débito", "Crédito"]),
-                    "grupo": st.column_config.SelectboxColumn("Grupo", options=["Ativo", "Passivo", "Patrimônio Líquido", "Receitas", "Despesas", "Custos"]),
+                    "grupo": st.column_config.SelectboxColumn("Grupo", options=opcoes_grupo),
                     "status_financeiro": st.column_config.SelectboxColumn("Status", options=["Entrada", "Saída", "Pendente", "Investimento", "Transação Interna"]),
-                    "justificativa": None # Mantém oculta na tabela já que não está sendo usada no momento
+                    "justificativa": None 
                 }
             )
             
