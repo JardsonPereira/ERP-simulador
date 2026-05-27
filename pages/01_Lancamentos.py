@@ -3,7 +3,7 @@ import sys
 import os
 from datetime import date
 
-# --- CONFIGURAÇÃO E AUTENTICAÇÃO ---
+# --- CONFIGURAÇÃO ---
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from utils import get_supabase, check_auth, show_auth_sidebar
 
@@ -57,18 +57,20 @@ with st.form("lancamento_form", clear_on_submit=True):
                 supabase.table("lancamentos").insert({"user_id":user_id, "conta_id":conta_id, "operacao":operacao, "valor":abs(valor), "data_lancamento":str(data), "status_financeiro":status, "grupo":grupo, "justificativa":justificativa}).execute()
                 st.success("Registrado!")
                 st.rerun()
-            except Exception as e: st.error(f"Erro: {e}")
+            except Exception as e: st.error(f"Erro ao salvar: {e}")
 
-# --- HISTÓRICO VISUALMENTE LIMPO ---
+# --- HISTÓRICO COM EDIÇÃO RESTAURADA ---
 st.markdown("---")
 st.subheader("📊 Histórico")
 if user_id:
     res = supabase.table("lancamentos").select("*").eq("user_id", user_id).order("data_lancamento", desc=True).execute()
     if res.data:
+        # Prepara dados para exibição
         id_para_nome = {v: k for k, v in dicionario_contas.items()}
         for item in res.data: 
-            item.update({"Excluir": False, "Conta": id_para_nome.get(item["conta_id"], "N/A"), "valor": abs(item["valor"])})
+            item.update({"Excluir": False, "Conta": id_para_nome.get(item["conta_id"], "N/A"), "valor": abs(float(item["valor"]))})
         
+        # Tabela editável
         edit = st.data_editor(
             res.data, 
             use_container_width=True, 
@@ -81,15 +83,28 @@ if user_id:
             }
         )
         
-        col_b1, col_b2 = st.columns(2)
-        with col_b1:
+        # Botões de ação
+        c1, c2 = st.columns(2)
+        with c1:
             if st.button("💾 Salvar Edições"):
-                for i, row in enumerate(edit):
-                    if row != res.data[i]:
-                        supabase.table("lancamentos").update({"valor": abs(row["valor"]), "operacao": row["operacao"], "grupo": row["grupo"], "justificativa": row["justificativa"]}).eq("id", row["id"]).execute()
-                st.rerun()
-        with col_b2:
+                try:
+                    for i, row in enumerate(edit):
+                        # Verifica se houve alteração real
+                        if row != res.data[i]:
+                            # Tratamento de segurança para conversão de valores
+                            val_limpo = abs(float(row["valor"] or 0))
+                            supabase.table("lancamentos").update({
+                                "valor": val_limpo, 
+                                "operacao": row["operacao"], 
+                                "grupo": row["grupo"], 
+                                "justificativa": row["justificativa"]
+                            }).eq("id", row["id"]).execute()
+                    st.success("Alterações salvas!")
+                    st.rerun()
+                except Exception as e: st.error(f"Erro ao salvar: {e}")
+        with c2:
             if st.button("🗑️ Excluir Selecionados"):
                 ids = [r["id"] for r in edit if r["Excluir"]]
-                supabase.table("lancamentos").delete().in_("id", ids).execute()
-                st.rerun()
+                if ids:
+                    supabase.table("lancamentos").delete().in_("id", ids).execute()
+                    st.rerun()
