@@ -39,13 +39,7 @@ if user_id:
 with st.form("lancamento_form", clear_on_submit=True):
     st.subheader("📝 Criar Novo Lançamento")
     
-    nome_lancamento = st.text_input(
-        "Nome do Lançamento", 
-        placeholder="Ex: Compra de Mercadorias, Pagamento de Luz, etc."
-    )
-
     # --- SEÇÃO DE SELEÇÃO OU CRIAÇÃO DE CONTA ---
-    st.markdown("---")
     col_conta1, col_conta2 = st.columns(2)
     with col_conta1:
         conta_escolhida = st.selectbox("Selecione uma Conta Existente", lista_para_selectbox)
@@ -74,9 +68,7 @@ with st.form("lancamento_form", clear_on_submit=True):
 
     # --- LÓGICA DE SALVAMENTO ---
     if submit:
-        if not nome_lancamento:
-            st.warning("O nome do lançamento é obrigatório!")
-        elif conta_escolhida == "-- Selecionar Conta Existente --" and not nova_conta_nome:
+        if conta_escolhida == "-- Selecionar Conta Existente --" and not nova_conta_nome:
             st.warning("Você precisa selecionar uma conta existente OU digitar o nome de uma nova conta!")
         elif not user_id:
             st.error("Sessão inválida. Faça login novamente.")
@@ -110,12 +102,11 @@ with st.form("lancamento_form", clear_on_submit=True):
                         "valor": valor if status in ["Entrada", "Investimento"] else -valor,
                         "data_lancamento": str(data_input),
                         "status_financeiro": status,
-                        "justificativa": nome_lancamento, 
                         "grupo": grupo
                     }
                     
                     supabase.table("lancamentos").insert(dados_lancamento).execute()
-                    st.success(f"Lançamento '{nome_lancamento}' registrado com sucesso!")
+                    st.success("Lançamento registrado com sucesso!")
                     st.rerun() 
                     
             except Exception as e:
@@ -136,8 +127,7 @@ if user_id:
                 column_config={
                     "id": None,          
                     "user_id": None,     
-                    "conta_id": st.column_config.NumberColumn("ID da Conta"),    
-                    "justificativa": st.column_config.TextColumn("Nome do Lançamento", width="large")
+                    "conta_id": st.column_config.NumberColumn("ID da Conta")
                 }
             )
         else:
