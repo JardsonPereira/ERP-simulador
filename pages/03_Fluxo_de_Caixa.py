@@ -23,20 +23,18 @@ if lancamentos and contas:
     # Merge dos dados
     df = pd.DataFrame(lancamentos).merge(pd.DataFrame(contas), left_on='conta_id', right_on='id', suffixes=('', '_conta'))
     
-    # --- PROCESSAMENTO ROBUSTO ---
+    # Processamento
     df['data_lancamento'] = pd.to_datetime(df['data_lancamento'].astype(str).str[:10]).dt.date
     df['valor'] = pd.to_numeric(df['valor'], errors='coerce').fillna(0)
-    
-    # Padroniza status (Entrada/Saída)
     df['status_limpo'] = df['status_financeiro'].astype(str).str.strip().str.capitalize()
     
-    # Padroniza GRUPO para garantir que a busca funcione (Remove espaços e coloca tudo em minúsculo)
+    # Garantir que a coluna grupo exista e tratar espaços vazios
     if 'grupo' in df.columns:
-        df['grupo_limpo'] = df['grupo'].astype(str).str.strip().str.lower()
+        df['grupo'] = df['grupo'].astype(str).str.strip()
     else:
-        df['grupo_limpo'] = 'não definido'
+        df['grupo'] = "Sem Grupo"
 
-    # Filtros da Sidebar
+    # 2. Sidebar (Filtros)
     with st.sidebar:
         st.header("⚙️ Filtros")
         contas_disponiveis = df['nome_conta'].unique()
@@ -59,25 +57,28 @@ if lancamentos and contas:
     with tab1:
         entradas = df_periodo[df_periodo['status_limpo'] == 'Entrada']['valor'].sum()
         saidas = df_periodo[df_periodo['status_limpo'] == 'Saída']['valor'].sum()
+        saldo_final = entradas - saidas
+        
         c1, c2, c3 = st.columns(3)
         c1.metric("Total Entradas", f"R$ {entradas:,.2f}")
         c2.metric("Total Saídas", f"R$ {saidas:,.2f}")
-        c3.metric("Saldo Final", f"R$ {entradas - saidas:,.2f}")
+        c3.metric("Saldo Final", f"R$ {saldo_final:,.2f}")
         
         df_periodo['valor_efetivo'] = df_periodo.apply(lambda row: row['valor'] if row['status_limpo'] == 'Entrada' else -abs(row['valor']), axis=1)
         st.line_chart(df_periodo.groupby('data_lancamento')['valor_efetivo'].sum().cumsum())
 
     with tab2:
-        st.subheader("Análise de Solvência (Saldo Final / Passivos)")
+        st.subheader("Análise de Liquidez (Saldo Final / Passivos)")
         
-        # Filtros usando a versão limpa do grupo
-        # Nota: usamos .str.lower() pois o grupo_limpo já está assim
-        p_circulante = df_periodo[(df_periodo['status_limpo'] == 'Saída') & (df_periodo['grupo_limpo'] == 'circulante')]['valor'].sum()
-        p_nao_circulante = df_periodo[(df_periodo['status_limpo'] == 'Saída') & (df_periodo['grupo_limpo'] == 'não circulante')]['valor'].sum()
+        # Filtros usando o valor EXATO da coluna grupo (Circulante / Não Circulante)
+        # Nota: Ajuste a string dentro das aspas se no seu banco for "Passivo Circulante", etc.
+        p_circulante = df_periodo[(df_periodo['status_limpo'] == 'Saída') & (df_periodo['grupo'] == 'Circulante')]['valor'].sum()
+        p_nao_circulante = df_periodo[(df_periodo['status_limpo'] == 'Saída') & (df_periodo['grupo'] == 'Não Circulante')]['valor'].sum()
         
         total_passivos = p_circulante + p_nao_circulante
         saldo_final = df_periodo[df_periodo['status_limpo'] == 'Entrada']['valor'].sum() - df_periodo[df_periodo['status_limpo'] == 'Saída']['valor'].sum()
         
+        # Fórmula: Saldo Final / (Circulante + Não Circulante)
         liquidez = (saldo_final / total_passivos) if total_passivos > 0 else 0
         
         c1, c2, c3 = st.columns(3)
@@ -90,9 +91,8 @@ if lancamentos and contas:
         col_a.metric("Passivo Circulante", f"R$ {p_circulante:,.2f}")
         col_b.metric("Passivo Não Circulante", f"R$ {p_nao_circulante:,.2f}")
         
-        st.markdown("### Detalhamento dos Passivos (Lançamentos)")
-        # Filtra os dados apenas para mostrar o que é passivo circulante ou não circulante
-        df_passivos = df_periodo[df_periodo['grupo_limpo'].isin(['circulante', 'não circulante'])]
+        st.markdown("### Detalhamento dos Lançamentos (Passivos)")
+        df_passivos = df_periodo[df_periodo['grupo'].isin(['Circulante', 'Não Circulante'])]
         st.dataframe(df_passivos[['data_lancamento', 'nome_conta', 'grupo', 'valor', 'justificativa']], use_container_width=True)
 
     with tab3:
