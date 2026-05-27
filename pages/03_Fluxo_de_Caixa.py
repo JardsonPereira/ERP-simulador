@@ -3,14 +3,13 @@ import pandas as pd
 import sys
 import os
 
-# Adiciona o caminho das utilidades
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from utils import get_data_cached, check_auth, inject_css
 
 check_auth()
 inject_css()
 
-st.header("💵 Fluxo de Caixa")
+st.header("📊 Fluxo de Caixa (Contábil)")
 
 # 1. Carregamento dos dados
 user_id = st.session_state.user.id
@@ -20,31 +19,42 @@ contas = get_data_cached("contas", user_id)
 if lancamentos and contas:
     df = pd.DataFrame(lancamentos).merge(pd.DataFrame(contas), left_on='conta_id', right_on='id')
     
-    # 2. Conversão segura: converte data para string e depois para datetime sem fuso horário
+    # 2. LIMPEZA RÍGIDA DE DATAS E VALORES
+    # O uso de .str[:10] ignora horas e fusos, fixando a data exatamente como foi gravada
     df['data_lancamento'] = pd.to_datetime(df['data_lancamento'].astype(str).str[:10])
     df['valor'] = pd.to_numeric(df['valor'], errors='coerce').fillna(0)
     
-    # 3. FILTRO RÍGIDO: Removemos tudo que não for Entrada ou Saída
+    # Padronização de status
     df['status_limpo'] = df['status_financeiro'].astype(str).str.strip().str.capitalize()
+    
+    # 3. FILTRO CONTÁBIL: Apenas Entrada e Saída
+    # Qualquer outro status é ignorado pelo fluxo de caixa
     df = df[df['status_limpo'].isin(['Entrada', 'Saída'])].copy()
 
-    # 4. Cálculo de sinal
+    # 4. Lógica de Sinal (Crédito/Débito)
     df['valor_efetivo'] = df.apply(lambda row: row['valor'] if row['status_limpo'] == 'Entrada' else -abs(row['valor']), axis=1)
 
-    # 5. Interface e Filtros
+    # 5. Interface de Período
     c1, c2 = st.columns(2)
-    # Garante que as datas de filtro também sejam puras (sem fuso)
-    d_inicio = c1.date_input("Início", value=df['data_lancamento'].min().date() if not df.empty else pd.Timestamp.now().date())
-    d_fim = c2.date_input("Fim", value=df['data_lancamento'].max().date() if not df.empty else pd.Timestamp.now().date())
+    min_date = df['data_lancamento'].min().date() if not df.empty else pd.Timestamp.now().date()
+    max_date = df['data_lancamento'].max().date() if not df.empty else pd.Timestamp.now().date()
     
+    d_inicio = c1.date_input("Início do Período", value=min_date)
+    d_fim = c2.date_input("Fim do Período", value=max_date)
+    
+    # 6. Cálculo fiel ao período selecionado
     mask = (df['data_lancamento'].dt.date >= d_inicio) & (df['data_lancamento'].dt.date <= d_fim)
-    df_fc = df[mask].copy()
-
-    # 6. Cálculos Financeiros
+    df_periodo = df[mask].copy()
+    
+    # Saldo Inicial: Tudo o que aconteceu antes do período
     saldo_inicial = df[df['data_lancamento'].dt.date < d_inicio]['valor_efetivo'].sum()
-    total_entradas = df_fc[df_fc['status_limpo'] == 'Entrada']['valor'].sum()
-    total_saidas = df_fc[df_fc['status_limpo'] == 'Saída']['valor'].sum()
-    saldo_final = saldo_inicial + df_fc['valor_efetivo'].sum()
+    
+    # Totais do período
+    total_entradas = df_periodo[df_periodo['status_limpo'] == 'Entrada']['valor'].sum()
+    total_saidas = df_periodo[df_periodo['status_limpo'] == 'Saída']['valor'].sum()
+    
+    # Saldo Final
+    saldo_final = saldo_inicial + df_periodo['valor_efetivo'].sum()
 
     # 7. Exibição
     col1, col2, col3, col4 = st.columns(4)
@@ -54,7 +64,11 @@ if lancamentos and contas:
     col4.metric("Saldo Final", f"R$ {saldo_final:,.2f}")
 
     st.markdown("---")
-    st.dataframe(df_fc[['data_lancamento', 'status_financeiro', 'valor', 'justificativa']].sort_values('data_lancamento', ascending=False), use_container_width=True)
+    st.dataframe(
+        df_periodo[['data_lancamento', 'status_financeiro', 'valor', 'justificativa']]
+        .sort_values('data_lancamento', ascending=False), 
+        use_container_width=True
+    )
 
 else:
-    st.info("Nenhum lançamento de Entrada/Saída encontrado.")
+    st.info("Nenhum lançamento de Entrada ou Saída encontrado.")
