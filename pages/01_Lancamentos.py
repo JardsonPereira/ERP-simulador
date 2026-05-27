@@ -18,84 +18,62 @@ user_id = getattr(user, 'id', None) or (user.get('id') if isinstance(user, dict)
 st.title("💰 Lançamentos nos Razonetes")
 st.markdown("Efetue novos lançamentos e gerencie o histórico.")
 
-# --- CARREGAR CONTAS CADASTRADAS ---
-lista_para_selectbox = []
-dicionario_contas = {}
-
-if user_id:
-    try:
-        resposta_contas = supabase.table("contas").select("*").eq("user_id", user_id).execute()
-        if resposta_contas.data:
-            for conta in resposta_contas.data:
-                # Pega o nome da conta para exibir na lista bonita na tela
-                nome_exibicao = conta.get("nome") or conta.get("descricao") or f"Conta ID: {conta['id']}"
-                dicionario_contas[nome_exibicao] = conta["id"]
-            lista_para_selectbox = list(dicionario_contas.keys())
-    except Exception as e:
-        st.error(f"Erro ao carregar lista de contas: {e}")
-
 # --- FORMULÁRIO DE LANÇAMENTO ---
-if not lista_para_selectbox:
-    st.info("⚠️ Nenhuma conta cadastrada localizada. Cadastre uma conta primeiro para poder selecioná-la aqui.")
-else:
-    with st.form("lancamento_form", clear_on_submit=True):
-        st.subheader("📝 Criar Novo Lançamento")
+with st.form("lancamento_form", clear_on_submit=True):
+    st.subheader("📝 Criar Novo Lançamento")
+    
+    # Campo para você dar o nome/título ao lançamento
+    nome_lancamento = st.text_input(
+        "Nome do Lançamento", 
+        placeholder="Ex: Compra de Mercadorias, Pagamento de Luz, etc."
+    )
+
+    col1, col2 = st.columns(2)
+    with col1:
+        data_input = st.date_input("Data do Lançamento", date.today())
         
-        # Campo para você dar o nome/título ao lançamento (Salvo na 'justificativa')
-        nome_lancamento = st.text_input(
-            "Nome do Lançamento", 
-            placeholder="Ex: Compra de Mercadorias, Pagamento de Luz, etc."
+        # AQUI: Retornamos ao campo de número simples. Sem listas confusas!
+        conta_id = st.number_input("ID da Conta", min_value=1, step=1)
+        
+        valor = st.number_input("Valor (R$)", min_value=0.01, format="%.2f")
+        
+    with col2:
+        operacao = st.selectbox("Operação", ["Débito", "Crédito"])
+        grupo = st.selectbox(
+            "Grupo Contábil", 
+            ["Ativo", "Passivo", "Patrimônio Líquido", "Receitas", "Despesas", "Custos"]
         )
+        status = st.selectbox(
+            "Status Financeiro", 
+            ["Entrada", "Saída", "Pendente", "Investimento", "Transação Interna"]
+        )
+        
+    submit = st.form_submit_button("Confirmar e Gravar Lançamento")
 
-        col1, col2 = st.columns(2)
-        with col1:
-            data_input = st.date_input("Data do Lançamento", date.today())
+    if submit:
+        if not nome_lancamento:
+            st.warning("O nome do lançamento é obrigatório!")
+        elif not user_id:
+            st.error("Sessão inválida. Faça login novamente.")
+        else:
+            # Montando os dados para enviar ao banco de dados
+            dados = {
+                "user_id": user_id,
+                "conta_id": conta_id,  # Envia o número que você digitar diretamente
+                "operacao": operacao,
+                "valor": valor if status in ["Entrada", "Investimento"] else -valor,
+                "data_lancamento": str(data_input),
+                "status_financeiro": status,
+                "justificativa": nome_lancamento, 
+                "grupo": grupo
+            }
             
-            # AQUI: Lista com os nomes das contas (substitui a digitação do conta_id)
-            conta_escolhida = st.selectbox("Selecione a Conta", lista_para_selectbox)
-            
-            valor = st.number_input("Valor (R$)", min_value=0.01, format="%.2f")
-            
-        with col2:
-            operacao = st.selectbox("Operação", ["Débito", "Crédito"])
-            grupo = st.selectbox(
-                "Grupo Contábil", 
-                ["Ativo", "Passivo", "Patrimônio Líquido", "Receitas", "Despesas", "Custos"]
-            )
-            status = st.selectbox(
-                "Status Financeiro", 
-                ["Entrada", "Saída", "Pendente", "Investimento", "Transação Interna"]
-            )
-            
-        submit = st.form_submit_button("Confirmar e Gravar Lançamento")
-
-        if submit:
-            if not nome_lancamento:
-                st.warning("O nome do lançamento é obrigatório!")
-            elif not user_id:
-                st.error("Sessão inválida. Faça login novamente.")
-            else:
-                # O código pega o conta_id numérico correto baseado no nome que você escolheu
-                id_real_da_conta = dicionario_contas[conta_escolhida]
-                
-                # Montando os dados para enviar ao banco de dados exatamente na estrutura certa
-                dados = {
-                    "user_id": user_id,
-                    "conta_id": id_real_da_conta,  # Envia o número do ID da conta de forma invisível
-                    "operacao": operacao,
-                    "valor": valor if status in ["Entrada", "Investimento"] else -valor,
-                    "data_lancamento": str(data_input),
-                    "status_financeiro": status,
-                    "justificativa": nome_lancamento, 
-                    "grupo": grupo
-                }
-                
-                try:
-                    supabase.table("lancamentos").insert(dados).execute()
-                    st.success(f"Lançamento '{nome_lancamento}' registrado com sucesso!")
-                    st.rerun() 
-                except Exception as e:
-                    st.error(f"Erro ao salvar: {e}")
+            try:
+                supabase.table("lancamentos").insert(dados).execute()
+                st.success(f"Lançamento '{nome_lancamento}' registrado com sucesso!")
+                st.rerun() 
+            except Exception as e:
+                st.error(f"Erro ao salvar: {e}")
 
 # --- HISTÓRICO DE LANÇAMENTOS ARMAZENADOS ---
 st.markdown("---")
@@ -106,14 +84,13 @@ if user_id:
         response = supabase.table("lancamentos").select("*").eq("user_id", user_id).order("data_lancamento", desc=True).execute()
         
         if response.data:
-            # Mostra a tabela bonita, ocultando os IDs técnicos que não importam na tela
+            # Mostra a tabela e oculta apenas as colunas de ID internas que não importam na visualização
             st.dataframe(
                 response.data, 
                 use_container_width=True,
                 column_config={
                     "id": None,          
                     "user_id": None,     
-                    "conta_id": None,    
                     "justificativa": st.column_config.TextColumn("Nome do Lançamento", width="large")
                 }
             )
