@@ -3,7 +3,7 @@ import pandas as pd
 import sys
 import os
 
-# --- CORREÇÃO DO IMPORT E AUTENTICAÇÃO ---
+# --- CONFIGURAÇÃO E AUTENTICAÇÃO ---
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from utils import get_supabase, check_auth, show_auth_sidebar
 
@@ -59,12 +59,13 @@ if user_id:
         tab1, tab2, tab3 = st.tabs(["Razonetes (T)", "Balancete de Verificação", "Balanço Patrimonial"])
         
         # ==========================================
-        # TAB 1: RAZONETES EM T
+        # TAB 1: RAZONETES EM T (Com Justificativa)
         # ==========================================
         with tab1:
             for cat in sorted(df_p['Categoria'].unique()):
                 st.subheader(f"📁 {cat}")
                 contas_cat = sorted(df_p[df_p['Categoria'] == cat]['nome_conta'].unique())
+                
                 for i in range(0, len(contas_cat), 3):
                     cols = st.columns(3)
                     for j, col in enumerate(cols):
@@ -77,8 +78,9 @@ if user_id:
                                 saldo_final = abs(t_deb - t_cre)
                                 tipo_saldo = "Devedor" if t_deb >= t_cre else "Credor"
                                 cor_saldo = "#2e7d32" if tipo_saldo == "Devedor" else "#c62828"
+                                
                                 st.markdown(f"""
-                                    <div style="border: 1px solid #ddd; padding: 10px; border-radius: 5px; text-align: center; margin-bottom: 10px;">
+                                    <div style="border: 1px solid #ddd; padding: 10px; border-radius: 5px; text-align: center;">
                                         <b>{conta}</b>
                                         <div style="border-top: 2px solid black; margin-top: 5px;"></div>
                                         <div style="display: flex; border-left: 2px solid black; height: 60px;">
@@ -90,6 +92,11 @@ if user_id:
                                         </div>
                                     </div>
                                 """, unsafe_allow_html=True)
+                                
+                                # --- EXPANDER COM JUSTIFICATIVAS ---
+                                with st.expander("Ver Lançamentos"):
+                                    detalhes = d_c[['data_lancamento', 'justificativa', 'operacao', 'valor']]
+                                    st.dataframe(detalhes, use_container_width=True, hide_index=True)
 
         # ==========================================
         # TAB 2: BALANCETE
