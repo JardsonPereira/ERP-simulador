@@ -37,7 +37,6 @@ if user_id:
         if 'grupo' not in df.columns:
             df['grupo'] = df['grupo_lanc'] if 'grupo_lanc' in df.columns else df.get('grupo_conta', 'Outros')
         
-        # Filtro
         c1, c2 = st.columns(2)
         d_inicio = c1.date_input("Data Início", value=df['data_lancamento'].min().date())
         d_fim = c2.date_input("Data Fim", value=df['data_lancamento'].max().date())
@@ -63,21 +62,25 @@ if user_id:
                                 saldo_final = abs(t_deb - t_cre)
                                 tipo_saldo = "Devedor" if t_deb >= t_cre else "Credor"
                                 
-                                # Criar lista discreta de justificativas
-                                justificativas = "<br>".join([f"• {j}" for j in d_c['justificativa'].unique()])
+                                # Gerar lista itemizada (Valor + Justificativa abaixo)
+                                deb_list = "".join([f"<div style='margin-bottom:8px;'><b>{r.valor:,.2f}</b><br><small style='color:#666;'>{r.justificativa}</small></div>" for _, r in d_c[d_c['operacao'] == 'Débito'].iterrows()])
+                                cre_list = "".join([f"<div style='margin-bottom:8px;'><b>{r.valor:,.2f}</b><br><small style='color:#666;'>{r.justificativa}</small></div>" for _, r in d_c[d_c['operacao'] == 'Crédito'].iterrows()])
                                 
                                 st.markdown(f"""
-                                    <div style="border: 1px solid #ddd; padding: 10px; border-radius: 5px; text-align: center; margin-bottom: 10px; background-color: #f9f9f9;">
-                                        <b>{conta}</b>
-                                        <div style="border-top: 2px solid black; margin-top: 5px;"></div>
-                                        <div style="display: flex; border-left: 2px solid black; height: 50px;">
-                                            <div style="flex: 1; text-align: left; padding-left: 5px; font-size: 0.8em; color: #2e7d32;"><b>D</b>: {t_deb:,.2f}</div>
-                                            <div style="flex: 1; text-align: right; padding-right: 5px; font-size: 0.8em; color: #c62828;"><b>C</b>: {t_cre:,.2f}</div>
+                                    <div style="border: 1px solid #ddd; padding: 10px; border-radius: 5px; background: #fafafa;">
+                                        <div style="text-align: center; font-weight: bold;">{conta}</div>
+                                        <div style="border-top: 2px solid #333; margin: 5px 0;"></div>
+                                        <div style="display: flex; border-left: 2px solid #333; min-height: 100px;">
+                                            <div style="flex: 1; text-align: left; padding: 5px; border-right: 1px solid #ddd;">
+                                                <div style="color: #2e7d32; margin-bottom: 5px;"><b>DÉBITOS</b></div>
+                                                {deb_list}
+                                            </div>
+                                            <div style="flex: 1; text-align: right; padding: 5px;">
+                                                <div style="color: #c62828; margin-bottom: 5px;"><b>CRÉDITOS</b></div>
+                                                {cre_list}
+                                            </div>
                                         </div>
-                                        <div style="border-top: 1px solid #eee; margin: 5px 0; padding-top: 5px; font-size: 0.75em; color: #555; text-align: left;">
-                                            {justificativas}
-                                        </div>
-                                        <div style="border-top: 1px solid #ccc; padding-top: 5px; font-size: 0.9em; font-weight: bold;">
+                                        <div style="border-top: 1px solid #ccc; padding-top: 5px; text-align: center; font-weight: bold;">
                                             Saldo {tipo_saldo}: R$ {saldo_final:,.2f}
                                         </div>
                                     </div>
