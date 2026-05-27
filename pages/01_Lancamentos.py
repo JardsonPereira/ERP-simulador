@@ -1,4 +1,14 @@
+
 import streamlit as st
+from utils import get_supabase_client, check_auth
+
+# Verifica a sessão antes de qualquer coisa
+session = check_auth()
+supabase = get_supabase_client()
+
+user_id = session.user.id
+
+# ... resto do seu código de lançamentos ...import streamlit as st
 from supabase import create_client
 from datetime import date
 
@@ -6,9 +16,6 @@ from datetime import date
 # No arquivo secrets.toml, coloque:
 # SUPABASE_URL = "sua_url"
 # SUPABASE_KEY = "sua_key"
-URL = st.secrets["SUPABASE_URL"]
-KEY = st.secrets["SUPABASE_KEY"]
-
 supabase = create_client(URL, KEY)
 
 st.title("💰 Lançamentos Financeiros")
