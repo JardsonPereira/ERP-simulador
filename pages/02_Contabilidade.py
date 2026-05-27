@@ -10,7 +10,7 @@ from utils import get_supabase, check_auth, show_auth_sidebar
 check_auth()
 supabase = get_supabase()
 show_auth_sidebar(supabase)
-# Recupera ID do usuário de forma robusta
+
 user = st.session_state.user
 user_id = getattr(user, 'id', None) or (user.get('id') if isinstance(user, dict) else None)
 
@@ -27,11 +27,11 @@ def classificar_conta(grupo):
     if 'patrimônio' in g or 'pl' in g: return '5. Patrimônio Líquido'
     if 'receita' in g: return '6. Receitas'
     if 'despesa' in g or 'custo' in g: return '7. Despesas'
-    if 'encargo' in g: return '7. Despesas'  # Encargos Financeiros classificados como Despesa
+    if 'encargo' in g: return '7. Despesas' # Encargos Financeiros classificados como despesa
     return '8. Outros'
 
 if user_id:
-    # Busca dados
+    # Busca os dados
     res_lanc = supabase.table("lancamentos").select("*").eq("user_id", user_id).execute()
     res_contas = supabase.table("contas").select("*").eq("user_id", user_id).execute()
 
@@ -39,10 +39,10 @@ if user_id:
         df_l = pd.DataFrame(res_lanc.data)
         df_c = pd.DataFrame(res_contas.data)
         
-        # Merge Seguro
+        # Merge seguro (evita duplicação de colunas)
         df = df_l.merge(df_c, left_on='conta_id', right_on='id', suffixes=('_lanc', '_conta'))
         
-        # Correção do KeyError 'grupo' (Garante a existência da coluna unificada)
+        # CORREÇÃO DO KEYERROR: Unificação da coluna grupo
         df['grupo'] = df.get('grupo_lanc', df.get('grupo_conta', 'Outros'))
         
         df['data_lancamento'] = pd.to_datetime(df['data_lancamento'])
@@ -76,37 +76,51 @@ if user_id:
                                 saldo = abs(t_deb - t_cre)
                                 tipo_saldo = "Devedor" if t_deb >= t_cre else "Credor"
                                 
-                                deb_list = "".join([f"<div style='border-bottom:1px solid #eee; margin-bottom:5px;'><b>R$ {r.valor:,.2f}</b><br><small style='color:#666;'>{r.justificativa}</small></div>" for _, r in d_c[d_c['operacao'] == 'Débito'].iterrows()])
-                                cre_list = "".join([f"<div style='border-bottom:1px solid #eee; margin-bottom:5px;'><b>R$ {r.valor:,.2f}</b><br><small style='color:#666;'>{r.justificativa}</small></div>" for _, r in d_c[d_c['operacao'] == 'Crédito'].iterrows()])
+                                # HTML para exibição
+                                deb_list = "".join([f"<div style='border-bottom:1px solid #eee; margin-bottom:5px;'><small>R$ {r.valor:,.2f}</small><br><b style='font-size:0.8em;'>{r.justificativa}</b></div>" for _, r in d_c[d_c['operacao'] == 'Débito'].iterrows()])
+                                cre_list = "".join([f"<div style='border-bottom:1px solid #eee; margin-bottom:5px;'><small>R$ {r.valor:,.2f}</small><br><b style='font-size:0.8em;'>{r.justificativa}</b></div>" for _, r in d_c[d_c['operacao'] == 'Crédito'].iterrows()])
                                 
                                 st.markdown(f"""
-                                    <div style="border: 1px solid #ddd; padding: 10px; border-radius: 5px; background: #fafafa;">
+                                    <div style="border: 1px solid #ddd; padding: 10px; border-radius: 5px; background: #fafafa; margin-bottom:10px;">
                                         <div style="text-align: center; font-weight: bold;">{conta}</div>
                                         <hr style="margin:5px 0;">
                                         <div style="display: flex;">
-                                            <div style="flex: 1; padding: 5px; border-right: 1px solid #ddd;">
-                                                <div style="font-size:0.7em; color:green;">DÉBITO</div>{deb_list}
-                                            </div>
-                                            <div style="flex: 1; padding: 5px; text-align: right;">
-                                                <div style="font-size:0.7em; color:red;">CRÉDITO</div>{cre_list}
-                                            </div>
+                                            <div style="flex: 1; padding: 5px; border-right: 1px solid #ddd;"><div style="font-size:0.7em; color:green;">DÉBITO</div>{deb_list}</div>
+                                            <div style="flex: 1; padding: 5px; text-align: right;"><div style="font-size:0.7em; color:red;">CRÉDITO</div>{cre_list}</div>
                                         </div>
-                                        <div style="text-align:center; margin-top:10px; font-weight:bold;">Saldo {tipo_saldo}: R$ {saldo:,.2f}</div>
+                                        <div style="text-align:center; margin-top:5px; font-weight:bold; font-size:0.9em;">Saldo {tipo_saldo}: R$ {saldo:,.2f}</div>
                                     </div>
                                 """, unsafe_allow_html=True)
 
         # --- TAB 2: BALANCETE ---
         with tab2:
+            st.subheader("Balancete de Verificação")
             pivot = df_p.pivot_table(index='nome_conta', columns='operacao', values='valor', aggfunc='sum', fill_value=0)
             if 'Débito' not in pivot.columns: pivot['Débito'] = 0
             if 'Crédito' not in pivot.columns: pivot['Crédito'] = 0
             pivot['Saldo'] = pivot['Débito'] - pivot['Crédito']
             st.dataframe(pivot, use_container_width=True)
 
-        # --- TAB 3: BALANÇO ---
+        # --- TAB 3: BALANÇO PATRIMONIAL ---
         with tab3:
-            st.write("Visão sintética do patrimônio calculada a partir dos saldos das contas.")
-            df_bal = df_p.groupby('Categoria')['valor'].sum().reset_index()
-            st.dataframe(df_bal, use_container_width=True)
+            st.subheader("Balanço Patrimonial (Ativo = Passivo + PL)")
+            
+            ativo = df_p[df_p['Categoria'].isin(['1. Ativo Circulante', '2. Ativo Não Circulante'])]['valor'].sum()
+            passivo = df_p[df_p['Categoria'].isin(['3. Passivo Circulante', '4. Passivo Não Circulante'])]['valor'].sum()
+            pl = df_p[df_p['Categoria'] == '5. Patrimônio Líquido']['valor'].sum()
+            
+            c_left, c_right = st.columns(2)
+            with c_left:
+                st.metric("Total Ativo", f"R$ {ativo:,.2f}")
+                st.dataframe(df_p[df_p['Categoria'].str.contains('Ativo')].groupby('Categoria')['valor'].sum(), use_container_width=True)
+            with c_right:
+                st.metric("Total Passivo + PL", f"R$ {(passivo + pl):,.2f}")
+                st.dataframe(df_p[df_p['Categoria'].str.contains('Passivo|Patrimônio')].groupby('Categoria')['valor'].sum(), use_container_width=True)
+            
+            if abs(ativo - (passivo + pl)) < 0.01:
+                st.success("✅ Balanço Equilibrado!")
+            else:
+                st.error(f"⚠️ Balanço Desequilibrado: Diferença de R$ {(ativo - (passivo + pl)):,.2f}")
+
     else:
-        st.info("Nenhum lançamento encontrado.")
+        st.info("Nenhum lançamento encontrado no período.")
