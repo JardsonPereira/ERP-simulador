@@ -4,68 +4,57 @@ import os
 from datetime import date
 
 # --- CORREÇÃO DO IMPORT ---
-# Adiciona a pasta raiz (onde está o utils.py) ao caminho de busca do Python
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-
-# Importa as funções do utils.py
 from utils import get_supabase, check_auth, show_auth_sidebar
 
 # --- INICIALIZAÇÃO E AUTENTICAÇÃO ---
-# 1. Checa a autenticação (redireciona para login se não estiver logado)
 user = check_auth()
-
-# 2. Inicializa o cliente do Supabase
 supabase = get_supabase()
-
-# 3. Exibe a sidebar com informações do usuário logado
 show_auth_sidebar(supabase)
 
-# Extrai o ID do usuário de forma segura
 user_id = getattr(user, 'id', None) or (user.get('id') if isinstance(user, dict) else None)
 
 # --- INTERFACE PRINCIPAL ---
 st.title("💰 Lançamentos Financeiros")
 
-# --- FORMULÁRIO DE INSERÇÃO ---
 with st.form("lancamento_form", clear_on_submit=True):
     col1, col2 = st.columns(2)
     with col1:
-        data_lancamento = st.date_input("Data", date.today())
+        data_input = st.date_input("Data", date.today())
         valor = st.number_input("Valor", min_value=0.0, format="%.2f")
     with col2:
         tipo = st.selectbox("Tipo", ["Receita", "Despesa"])
         descricao = st.text_input("Descrição")
     
-    submit = st.form_submit_button("Salvar Lançamento")
+    submit = st.form_submit_button("Guardar Lançamento")
 
     if submit:
         if not descricao:
             st.warning("A descrição é obrigatória!")
         elif not user_id:
-            st.error("Erro ao identificar o usuário. Por favor, faça login novamente.")
+            st.error("Erro ao identificar o utilizador. Por favor, inicie sessão novamente.")
         else:
             dados = {
                 "user_id": user_id,
-                "data": str(data_lancamento), # <-- O NOME DA COLUNA NO SUPABASE DEVE SER 'data'
+                "data_lancamento": str(data_input), # <-- CORRIGIDO AQUI
                 "descricao": descricao,
-                "valor": valor if tipo == "Receita" else -valor,
-                "tipo": tipo
+                "tipo": tipo,
+                "valor": valor if tipo == "Receita" else -valor
             }
             try:
-                # Insere os dados no banco
                 supabase.table("lancamentos").insert(dados).execute()
-                st.success("Lançamento salvo com sucesso!")
-                st.rerun() # Atualiza a página
+                st.success("Lançamento guardado com sucesso!")
+                st.rerun()
             except Exception as e:
-                st.error(f"Erro ao salvar: {e}")
+                st.error(f"Erro ao guardar: {e}")
 
 # --- LISTAGEM (HISTÓRICO) ---
 st.subheader("Histórico de Lançamentos")
 
 if user_id:
     try:
-        # Busca os dados ordenando pela coluna 'data'
-        response = supabase.table("lancamentos").select("*").eq("user_id", user_id).order("data", desc=True).execute()
+        # <-- CORRIGIDO AQUI TAMBÉM: ordernar por 'data_lancamento'
+        response = supabase.table("lancamentos").select("*").eq("user_id", user_id).order("data_lancamento", desc=True).execute()
         
         if response.data:
             st.dataframe(response.data, use_container_width=True)
