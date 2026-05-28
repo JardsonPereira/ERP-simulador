@@ -51,32 +51,41 @@ if st.session_state.view_mode == "Razonetes":
             
             # Cabeçalho da Conta (Preto/Branco)
             st.markdown(f"""
-                <div style="background-color: black; color: white; padding: 10px; text-align: center; font-weight: bold; border-radius: 5px;">
+                <div style="background-color: black; color: white; padding: 5px; text-align: center; font-weight: bold; border-radius: 5px; margin-bottom: 5px;">
                     {conta}
                 </div>
             """, unsafe_allow_html=True)
             
             c_t1, c_t2 = st.columns(2)
             
-            # Débito (Verde)
+            # Débito (Verde) - Compacto
             with c_t1:
-                st.markdown("<h4 style='color: green; text-align: center;'>Débito</h4>", unsafe_allow_html=True)
-                st.table(deb[['data_lancamento', 'valor', 'justificativa']])
-                st.markdown(f"<p style='color: green; font-weight: bold;'>Total Débito: R$ {deb['valor'].sum():,.2f}</p>", unsafe_allow_html=True)
+                st.markdown("<h5 style='color: green; text-align: center; margin: 0;'>Débito</h5>", unsafe_allow_html=True)
+                st.dataframe(
+                    deb[['data_lancamento', 'valor', 'justificativa']], 
+                    use_container_width=True, 
+                    height=150, 
+                    hide_index=True
+                )
+                st.markdown(f"<p style='color: green; font-weight: bold; margin: 0;'>Total: R$ {deb['valor'].sum():,.2f}</p>", unsafe_allow_html=True)
             
-            # Crédito (Vermelho)
+            # Crédito (Vermelho) - Compacto
             with c_t2:
-                st.markdown("<h4 style='color: red; text-align: center;'>Crédito</h4>", unsafe_allow_html=True)
-                st.table(cred[['data_lancamento', 'valor', 'justificativa']])
-                st.markdown(f"<p style='color: red; font-weight: bold;'>Total Crédito: R$ {cred['valor'].sum():,.2f}</p>", unsafe_allow_html=True)
+                st.markdown("<h5 style='color: red; text-align: center; margin: 0;'>Crédito</h5>", unsafe_allow_html=True)
+                st.dataframe(
+                    cred[['data_lancamento', 'valor', 'justificativa']], 
+                    use_container_width=True, 
+                    height=150, 
+                    hide_index=True
+                )
+                st.markdown(f"<p style='color: red; font-weight: bold; margin: 0;'>Total: R$ {cred['valor'].sum():,.2f}</p>", unsafe_allow_html=True)
             
             # Saldo Final (Preto/Branco)
             st.markdown(f"""
-                <div style="background-color: black; color: white; padding: 10px; text-align: center; border-radius: 5px; margin-top: 10px;">
+                <div style="background-color: black; color: white; padding: 5px; text-align: center; border-radius: 5px; margin-top: 5px; margin-bottom: 25px;">
                     SALDO FINAL: R$ {saldo:,.2f}
                 </div>
             """, unsafe_allow_html=True)
-            st.markdown("<br>", unsafe_allow_html=True)
 
 elif st.session_state.view_mode == "Balancete":
     st.subheader("📑 Balancete de Verificação")
