@@ -7,7 +7,7 @@ from utils import get_supabase, check_auth, show_auth_sidebar
 # Configuração de caminhos
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-# 1. Autenticação com verificação de segurança
+# 1. Proteção de Autenticação
 check_auth()
 if "user" not in st.session_state or st.session_state.user is None:
     st.warning("Por favor, faça login para acessar esta página.")
@@ -57,7 +57,7 @@ with st.form("lancamento_form", clear_on_submit=True):
         if conta_id:
             supabase.table("lancamentos").insert({
                 "user_id": user_id, "conta_id": conta_id, "operacao": operacao, 
-                "valor": abs(valor), "data_lancamento": str(data), 
+                "valor": float(abs(valor)), "data_lancamento": str(data), 
                 "status_financeiro": status, "grupo": grupo, "justificativa": justificativa
             }).execute()
             st.rerun()
@@ -73,29 +73,35 @@ if res_lanc.data:
     id_to_name = {v: k for k, v in dicionario_contas.items()}
     df["Conta"] = df["conta_id"].map(id_to_name)
     
-    # Colunas para exibir
-    df_exibicao = df[["id", "data_lancamento", "Conta", "valor", "justificativa", "operacao", "status_financeiro"]]
+    # Preparação dos dados para o editor
+    df_exibicao = df[["id", "data_lancamento", "Conta", "valor", "justificativa", "operacao", "status_financeiro"]].copy()
+    df_exibicao["data_lancamento"] = pd.to_datetime(df_exibicao["data_lancamento"])
+    df_exibicao["valor"] = df_exibicao["valor"].fillna(0.0)
 
-    # Editor de dados otimizado
+    # Editor de dados com configurações seguras para evitar StreamlitAPIException
     edited_df = st.data_editor(
         df_exibicao, 
         use_container_width=True,
         hide_index=True,
         column_config={
-            "id": None, # Esconde o ID na interface
+            "id": st.column_config.NumberColumn("ID", disabled=True),
             "valor": st.column_config.NumberColumn("Valor (R$)", format="%.2f"),
             "data_lancamento": st.column_config.DateColumn("Data"),
+            "Conta": st.column_config.TextColumn("Conta", disabled=True),
+            "operacao": st.column_config.SelectboxColumn("Operação", options=["Débito", "Crédito"]),
+            "status_financeiro": st.column_config.SelectboxColumn("Status", options=["Entrada", "Saída", "Pendente", "Investimento", "Transação Interna"])
         }
     )
 
     if st.button("💾 Salvar Alterações"):
-        # Lógica simplificada de atualização
+        # Compara a versão editada com a original
         for i, row in edited_df.iterrows():
-            # Compara se houve alteração com o dataframe original
             if not row.equals(df_exibicao.iloc[i]):
                 supabase.table("lancamentos").update({
                     "valor": float(row["valor"]),
                     "justificativa": row["justificativa"],
-                    "status_financeiro": row["status_financeiro"]
+                    "status_financeiro": row["status_financeiro"],
+                    "operacao": row["operacao"]
                 }).eq("id", row["id"]).execute()
+        st.success("Alterações salvas com sucesso!")
         st.rerun()
