@@ -7,7 +7,8 @@ check_auth()
 supabase = get_supabase()
 user_id = st.session_state.user.id
 
-st.set_page_config(layout="wide") # Opcional: Garante melhor uso do espaço total da tela
+# Layout wide para melhor aproveitamento de tela
+st.set_page_config(layout="wide")
 st.title("📈 Demonstrações Contábeis")
 
 # --- Inicialização de Estado ---
@@ -39,10 +40,19 @@ st.markdown("---")
 if st.session_state.view_mode == "Razonetes":
     st.subheader("📊 Razonetes (Livro Razão em T)")
     
-    # CSS para limitar a largura dos razonetes (max-width: 800px)
+    # CSS para o desenho do T
     st.markdown("""
         <style>
-        .razonete-container { max-width: 800px; margin: auto; }
+        .t-account {
+            border: 2px solid #333;
+            border-radius: 5px;
+            padding: 10px;
+            margin-bottom: 30px;
+            background-color: #f9f9f9;
+        }
+        .vertical-line {
+            border-right: 2px solid #333;
+        }
         </style>
     """, unsafe_allow_html=True)
     
@@ -63,46 +73,45 @@ if st.session_state.view_mode == "Razonetes":
             cred = df_conta[df_conta['operacao'] == 'Crédito']
             saldo = deb['valor'].sum() - cred['valor'].sum()
             
-            # Container com largura limitada
-            st.markdown('<div class="razonete-container">', unsafe_allow_html=True)
+            # Início do T
+            st.markdown('<div class="t-account">', unsafe_allow_html=True)
             
+            # Cabeçalho da Conta (Barra superior do T)
             st.markdown(f"""
-                <div style="background-color: black; color: white; padding: 3px; text-align: center; font-weight: bold; border-radius: 5px; margin-bottom: 2px; font-size: 0.9em;">
-                    {conta}
+                <div style="background-color: black; color: white; padding: 5px; text-align: center; font-weight: bold; border-bottom: 2px solid #333; margin-bottom: 10px;">
+                    {conta.upper()}
                 </div>
             """, unsafe_allow_html=True)
             
-            c_t1, c_t2 = st.columns(2)
+            # Colunas com a linha vertical separadora
+            c_t1, c_t2 = st.columns([1, 1])
             
             with c_t1:
-                st.markdown("<h6 style='color: green; text-align: center; margin: 0;'>Débito</h6>", unsafe_allow_html=True)
+                st.markdown("<div class='vertical-line'>", unsafe_allow_html=True)
+                st.markdown("<h6 style='color: green; text-align: center;'>Débito</h6>", unsafe_allow_html=True)
                 st.dataframe(
                     deb[['data_lancamento', 'valor', 'justificativa']], 
-                    use_container_width=True, 
-                    height=80, 
-                    hide_index=True,
-                    column_config=col_config
+                    use_container_width=True, height=120, hide_index=True, column_config=col_config
                 )
-                st.markdown(f"<p style='color: green; font-weight: bold; margin: 0; font-size: 0.8em;'>Total: R$ {deb['valor'].sum():,.2f}</p>", unsafe_allow_html=True)
+                st.markdown(f"<p style='color: green; font-weight: bold; text-align: right; padding-right: 10px;'>Total: R$ {deb['valor'].sum():,.2f}</p>", unsafe_allow_html=True)
+                st.markdown("</div>", unsafe_allow_html=True)
             
             with c_t2:
-                st.markdown("<h6 style='color: red; text-align: center; margin: 0;'>Crédito</h6>", unsafe_allow_html=True)
+                st.markdown("<h6 style='color: red; text-align: center;'>Crédito</h6>", unsafe_allow_html=True)
                 st.dataframe(
                     cred[['data_lancamento', 'valor', 'justificativa']], 
-                    use_container_width=True, 
-                    height=80, 
-                    hide_index=True,
-                    column_config=col_config
+                    use_container_width=True, height=120, hide_index=True, column_config=col_config
                 )
-                st.markdown(f"<p style='color: red; font-weight: bold; margin: 0; font-size: 0.8em;'>Total: R$ {cred['valor'].sum():,.2f}</p>", unsafe_allow_html=True)
+                st.markdown(f"<p style='color: red; font-weight: bold; text-align: right; padding-right: 10px;'>Total: R$ {cred['valor'].sum():,.2f}</p>", unsafe_allow_html=True)
             
+            # Saldo
             st.markdown(f"""
-                <div style="background-color: black; color: white; padding: 3px; text-align: center; border-radius: 5px; margin-top: 5px; margin-bottom: 25px; font-weight: bold;">
+                <div style="border-top: 2px solid #333; margin-top: 10px; padding-top: 10px; text-align: center; font-weight: bold;">
                     SALDO FINAL: R$ {saldo:,.2f}
                 </div>
             """, unsafe_allow_html=True)
             
-            st.markdown('</div>', unsafe_allow_html=True) # Fim do container limitado
+            st.markdown('</div>', unsafe_allow_html=True)
 
 elif st.session_state.view_mode == "Balancete":
     st.subheader("📑 Balancete de Verificação")
