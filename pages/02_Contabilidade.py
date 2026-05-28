@@ -38,6 +38,13 @@ st.markdown("---")
 if st.session_state.view_mode == "Razonetes":
     st.subheader("📊 Razonetes (Livro Razão em T)")
     
+    # Configuração de largura das colunas
+    col_config = {
+        "data_lancamento": st.column_config.DateColumn("Data", width="small"),
+        "valor": st.column_config.NumberColumn("Valor", width="small", format="R$ %.2f"),
+        "justificativa": st.column_config.TextColumn("Justificativa", width="medium")
+    }
+
     grupos = df['grupo'].unique()
     for grupo in grupos:
         st.markdown(f"### 📂 Grupo: {grupo}")
@@ -49,40 +56,42 @@ if st.session_state.view_mode == "Razonetes":
             cred = df_conta[df_conta['operacao'] == 'Crédito']
             saldo = deb['valor'].sum() - cred['valor'].sum()
             
-            # Cabeçalho da Conta (Preto/Branco)
+            # Cabeçalho da Conta
             st.markdown(f"""
-                <div style="background-color: black; color: white; padding: 3px; text-align: center; font-weight: bold; border-radius: 5px; margin-bottom: 2px; font-size: 0.9em;">
+                <div style="background-color: black; color: white; padding: 3px; text-align: center; font-weight: bold; border-radius: 5px; margin-bottom: 2px;">
                     {conta}
                 </div>
             """, unsafe_allow_html=True)
             
             c_t1, c_t2 = st.columns(2)
             
-            # Débito (Verde) - Compacto com Justificativa
+            # Débito (Verde)
             with c_t1:
                 st.markdown("<h6 style='color: green; text-align: center; margin: 0;'>Débito</h6>", unsafe_allow_html=True)
                 st.dataframe(
                     deb[['data_lancamento', 'valor', 'justificativa']], 
                     use_container_width=True, 
                     height=80, 
-                    hide_index=True
+                    hide_index=True,
+                    column_config=col_config
                 )
                 st.markdown(f"<p style='color: green; font-weight: bold; margin: 0; font-size: 0.8em;'>Total: R$ {deb['valor'].sum():,.2f}</p>", unsafe_allow_html=True)
             
-            # Crédito (Vermelho) - Compacto com Justificativa
+            # Crédito (Vermelho)
             with c_t2:
                 st.markdown("<h6 style='color: red; text-align: center; margin: 0;'>Crédito</h6>", unsafe_allow_html=True)
                 st.dataframe(
                     cred[['data_lancamento', 'valor', 'justificativa']], 
                     use_container_width=True, 
                     height=80, 
-                    hide_index=True
+                    hide_index=True,
+                    column_config=col_config
                 )
                 st.markdown(f"<p style='color: red; font-weight: bold; margin: 0; font-size: 0.8em;'>Total: R$ {cred['valor'].sum():,.2f}</p>", unsafe_allow_html=True)
             
-            # Saldo Final (Preto/Branco)
+            # Saldo Final
             st.markdown(f"""
-                <div style="background-color: black; color: white; padding: 3px; text-align: center; border-radius: 5px; margin-top: 5px; margin-bottom: 20px; font-weight: bold;">
+                <div style="background-color: black; color: white; padding: 3px; text-align: center; border-radius: 5px; margin-top: 5px; margin-bottom: 25px; font-weight: bold;">
                     SALDO FINAL: R$ {saldo:,.2f}
                 </div>
             """, unsafe_allow_html=True)
