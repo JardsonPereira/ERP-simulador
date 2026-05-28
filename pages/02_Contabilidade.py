@@ -3,7 +3,7 @@ import pandas as pd
 from utils import get_supabase, check_auth
 
 # --- Configuração ---
-st.set_page_config(layout="wide", page_title="Contabilidade Compacta")
+st.set_page_config(layout="wide", page_title="ContabilApp - Contabilidade")
 check_auth()
 supabase = get_supabase()
 user_id = st.session_state.user.id
@@ -37,9 +37,9 @@ st.markdown("---")
 # --- Estilos CSS ---
 st.markdown("""
     <style>
-    .t-wrapper { border: 2px solid #333; padding: 5px; margin-bottom: 10px; border-radius: 5px; background-color: #fcfcfc; }
-    .t-header { background: #333; color: white; text-align: center; font-weight: bold; padding: 3px; margin-bottom: 5px; }
-    .t-divider { border-right: 2px solid #333; }
+    .t-wrapper { border: 1px solid #ccc; padding: 5px; margin-bottom: 10px; border-radius: 4px; background: #fafafa; }
+    .t-header { background: #333; color: white; text-align: center; font-weight: bold; padding: 2px; border-radius: 2px; }
+    .total-text { font-size: 0.8em; font-weight: bold; text-align: right; margin: 0; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -71,26 +71,34 @@ if st.session_state.view_mode == "Razonetes":
                 with c1:
                     st.markdown("<p style='text-align:center; color:green; margin:0;'>Débito</p>", unsafe_allow_html=True)
                     st.dataframe(deb[['data_lancamento', 'valor', 'justificativa']], height=70, hide_index=True, column_config=col_config, use_container_width=True)
-                    st.markdown(f"<p style='font-size:0.8em; color:green; text-align:right;'>Total D: {deb['valor'].sum():,.2f}</p>", unsafe_allow_html=True)
+                    st.markdown(f"<p class='total-text' style='color:green;'>Total D: {deb['valor'].sum():,.2f}</p>", unsafe_allow_html=True)
                 with c2:
                     st.markdown("<p style='text-align:center; color:red; margin:0;'>Crédito</p>", unsafe_allow_html=True)
                     st.dataframe(cred[['data_lancamento', 'valor', 'justificativa']], height=70, hide_index=True, column_config=col_config, use_container_width=True)
-                    st.markdown(f"<p style='font-size:0.8em; color:red; text-align:right;'>Total C: {cred['valor'].sum():,.2f}</p>", unsafe_allow_html=True)
-                st.markdown(f"<div style='border-top:2px solid #333; text-align:center; font-weight:bold;'>SALDO: {saldo_v:,.2f}</div>", unsafe_allow_html=True)
+                    st.markdown(f"<p class='total-text' style='color:red;'>Total C: {cred['valor'].sum():,.2f}</p>", unsafe_allow_html=True)
+                st.markdown(f"<div style='border-top:1px solid #ccc; text-align:center; font-weight:bold;'>SALDO: {saldo_v:,.2f}</div>", unsafe_allow_html=True)
                 st.markdown('</div>', unsafe_allow_html=True)
 
 elif st.session_state.view_mode == "Balancete":
     st.subheader("📑 Balancete de Verificação")
-    bal = df.groupby(['Conta', 'operacao'])['valor'].sum().unstack(fill_value=0)
-    bal['Saldo Devedor'] = bal.apply(lambda r: r['Débito'] - r['Crédito'] if r['Débito'] > r['Crédito'] else 0, axis=1)
-    bal['Saldo Credor'] = bal.apply(lambda r: r['Crédito'] - r['Débito'] if r['Crédito'] > r['Débito'] else 0, axis=1)
     
-    t_d, t_c = bal['Saldo Devedor'].sum(), bal['Saldo Credor'].sum()
+    # Criar a tabela dinâmica exibindo Crédito, Débito e Saldo
+    bal = df.groupby(['Conta', 'operacao'])['valor'].sum().unstack(fill_value=0)
+    if 'Débito' not in bal.columns: bal['Débito'] = 0
+    if 'Crédito' not in bal.columns: bal['Crédito'] = 0
+    
+    # Calculando o Saldo para conferência
+    bal['Saldo'] = bal['Débito'] - bal['Crédito']
+    
+    # Exibir totais superiores
+    t_deb = bal['Débito'].sum()
+    t_cred = bal['Crédito'].sum()
     c1, c2, c3 = st.columns(3)
-    c1.metric("Saldo Devedor", f"R$ {t_d:,.2f}")
-    c2.metric("Saldo Credor", f"R$ {t_c:,.2f}")
-    c3.metric("Diferença", f"R$ {t_d - t_c:,.2f}")
-    st.dataframe(bal[['Saldo Devedor', 'Saldo Credor']], use_container_width=True)
+    c1.metric("Total Débitos", f"R$ {t_deb:,.2f}")
+    c2.metric("Total Créditos", f"R$ {t_cred:,.2f}")
+    c3.metric("Diferença", f"R$ {t_deb - t_cred:,.2f}")
+    
+    st.dataframe(bal[['Crédito', 'Débito', 'Saldo']], use_container_width=True)
 
 elif st.session_state.view_mode == "Balanço":
     st.subheader("⚖️ Balanço Patrimonial")
