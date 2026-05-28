@@ -64,7 +64,8 @@ st.markdown("""
 def get_group_details(group_name, nature):
     df_g = df_filtered[df_filtered['grupo'] == group_name]
     if df_g.empty: return 0.0, {}
-    accounts = df_g.groupby('Conta')['valor'].agg(['sum']).to_dict()['sum']
+    # Agrupa por conta e soma valores
+    accounts = df_g.groupby('Conta')['valor'].sum().to_dict()
     d = df_g[df_g['operacao'] == 'Débito']['valor'].sum()
     c = df_g[df_g['operacao'] == 'Crédito']['valor'].sum()
     total = (d - c) if nature == 'D' else (c - d)
@@ -106,9 +107,6 @@ elif st.session_state.view_mode == "Razonetes":
             
             deb = df_c[df_c['operacao'] == 'Débito'].copy()
             cred = df_c[df_c['operacao'] == 'Crédito'].copy()
-            
-            deb['valor'] = deb['valor'].abs()
-            cred['valor'] = cred['valor'].abs()
             
             d_total = deb['valor'].sum()
             c_total = cred['valor'].sum()
@@ -160,20 +158,27 @@ elif st.session_state.view_mode == "Balancete":
 elif st.session_state.view_mode == "Balanço":
     st.subheader("⚖️ Balanço Patrimonial")
     
+    # 1. Obter saldos das contas patrimoniais
     a_c, a_c_accts = get_group_details('Ativo Circulante', 'D')
     a_nc, a_nc_accts = get_group_details('Ativo Não Circulante', 'D')
     p_c, p_c_accts = get_group_details('Passivo Circulante', 'C')
     p_nc, p_nc_accts = get_group_details('Passivo Não Circulante', 'C')
     pl, pl_accts = get_group_details('Patrimônio Líquido', 'C')
     
+    # 2. Calcular o ARE (Apuração do Resultado do Exercício)
     rec, _ = get_group_details('Receitas', 'C')
     desp, _ = get_group_details('Despesas', 'D')
-    resultado = rec - desp
+    resultado_exercicio = rec - desp
     
+    # 3. Consolidar os Totais
     tot_a = a_c + a_nc
-    tot_p_pl = p_c + p_nc + pl + resultado
+    # O PL agora incorpora o resultado do exercício
+    pl_final = pl + resultado_exercicio
+    tot_p_pl = p_c + p_nc + pl_final
     
+    # 4. Exibição
     col_a, col_p = st.columns(2)
+    
     with col_a:
         st.markdown("### 🏢 ATIVO")
         st.metric("Total Ativo", f"R$ {tot_a:,.2f}")
@@ -184,11 +189,24 @@ elif st.session_state.view_mode == "Balanço":
     with col_p:
         st.markdown("### 🏦 PASSIVO + PL")
         st.metric("Total Origens", f"R$ {tot_p_pl:,.2f}")
-        for g, accts in [('Passivo Circulante', p_c_accts), ('Passivo Não Circulante', p_nc_accts), ('Patrimônio Líquido', pl_accts)]:
+        
+        # Passivo
+        for g, accts in [('Passivo Circulante', p_c_accts), ('Passivo Não Circulante', p_nc_accts)]:
             st.markdown(f"**{g}**")
             for acc, v in accts.items(): st.write(f"- {acc}: R$ {v:,.2f}")
-        st.write(f"- **Resultado do Exercício:** R$ {resultado:,.2f}")
+            
+        # Patrimônio Líquido incorporando a ARE
+        st.markdown("**Patrimônio Líquido**")
+        for acc, v in pl_accts.items(): 
+            st.write(f"- {acc}: R$ {v:,.2f}")
+        
+        # Exibe o resultado como parte do PL
+        label_resultado = "Lucro do Exercício" if resultado_exercicio >= 0 else "Prejuízo do Exercício"
+        st.write(f"- **{label_resultado}: R$ {resultado_exercicio:,.2f}**")
+        st.markdown(f"---")
+        st.write(f"**Total do PL Consolidado: R$ {pl_final:,.2f}**")
 
+    # Validação de Equilíbrio
     if abs(tot_a - tot_p_pl) < 0.01:
         st.success("✅ Balanço Equilibrado!")
     else:
