@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+from datetime import date
 from utils import get_supabase, check_auth
 
 # --- Configuração ---
@@ -18,6 +19,7 @@ if 'view_mode' not in st.session_state:
 res_lanc = supabase.table("lancamentos").select("*").eq("user_id", user_id).execute()
 res_contas = supabase.table("contas").select("id, nome_conta, grupo").eq("user_id", user_id).execute()
 id_to_name = {c['id']: c['nome_conta'] for c in res_contas.data}
+id_to_group = {c['id']: c['grupo'] for c in res_contas.data}
 
 if not res_lanc.data:
     st.warning("Nenhum lançamento encontrado.")
@@ -25,6 +27,18 @@ if not res_lanc.data:
 
 df = pd.DataFrame(res_lanc.data)
 df["Conta"] = df["conta_id"].map(id_to_name)
+df["grupo"] = df["conta_id"].map(id_to_group)
+# Garantir formato de data
+df["data_lancamento"] = pd.to_datetime(df["data_lancamento"]).dt.date
+
+# --- Filtro de Data ---
+st.sidebar.header("🗓️ Filtros")
+data_inicio = st.sidebar.date_input("Data Início", value=date(2026, 1, 1))
+data_fim = st.sidebar.date_input("Data Fim", value=date.today())
+
+# Aplica o filtro
+mask = (df["data_lancamento"] >= data_inicio) & (df["data_lancamento"] <= data_fim)
+df_filtered = df.loc[mask]
 
 # --- Navegação ---
 c1, c2, c3, c4 = st.columns(4)
@@ -45,9 +59,9 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- Funções Auxiliares ---
+# --- Função Atualizada (usa df_filtered) ---
 def get_group_details(group_name, nature):
-    df_g = df[df['grupo'] == group_name]
+    df_g = df_filtered[df_filtered['grupo'] == group_name]
     if df_g.empty: return 0.0, {}
     accounts = df_g.groupby('Conta')['valor'].agg(['sum']).to_dict()['sum']
     d = df_g[df_g['operacao'] == 'Débito']['valor'].sum()
@@ -56,7 +70,6 @@ def get_group_details(group_name, nature):
     return total, accounts
 
 # --- Abas ---
-
 if st.session_state.view_mode == "Plano de Contas":
     st.subheader("📂 Estrutura do Plano de Contas")
     df_contas = pd.DataFrame(res_contas.data)
@@ -72,16 +85,15 @@ elif st.session_state.view_mode == "Razonetes":
                   "valor": st.column_config.NumberColumn("Valor", width="small", format="R$ %.2f"),
                   "justificativa": st.column_config.TextColumn("Justif.", width="medium")}
     
-    for grupo in df['grupo'].unique():
+    for grupo in df_filtered['grupo'].unique():
         st.markdown(f"#### 📂 {grupo}")
-        contas = df[df['grupo'] == grupo]['Conta'].unique()
+        contas = df_filtered[df_filtered['grupo'] == grupo]['Conta'].unique()
         cols = st.columns(2)
         for i, conta in enumerate(contas):
-            df_c = df[(df['grupo'] == grupo) & (df['Conta'] == conta)]
+            df_c = df_filtered[(df_filtered['grupo'] == grupo) & (df_filtered['Conta'] == conta)]
             deb = df_c[df_c['operacao'] == 'Débito'].copy()
             cred = df_c[df_c['operacao'] == 'Crédito'].copy()
             
-            # Garantir valores positivos para exibição visual
             deb['valor'] = deb['valor'].abs()
             cred['valor'] = cred['valor'].abs()
             
@@ -104,7 +116,7 @@ elif st.session_state.view_mode == "Razonetes":
 
 elif st.session_state.view_mode == "Balancete":
     st.subheader("📑 Balancete de Verificação")
-    bal = df.groupby(['Conta', 'operacao'])['valor'].sum().unstack(fill_value=0)
+    bal = df_filtered.groupby(['Conta', 'operacao'])['valor'].sum().unstack(fill_value=0)
     if 'Débito' not in bal.columns: bal['Débito'] = 0.0
     if 'Crédito' not in bal.columns: bal['Crédito'] = 0.0
     bal['Saldo'] = bal['Débito'] - bal['Crédito']
