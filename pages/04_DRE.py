@@ -18,8 +18,7 @@ data_fim = col2.date_input("Data Fim", date.today())
 
 # --- 2. Busca e Preparação dos Dados ---
 res_lanc = supabase.table("lancamentos").select("*").eq("user_id", user_id).execute()
-# CORRIGIDO: user_id com apenas um underline
-res_contas = supabase.table("contas").select("*").eq("user_id", user_id).execute() 
+res_contas = supabase.table("contas").select("*").eq("user_id", user_id).execute()
 
 if res_lanc.data and res_contas.data:
     df_l = pd.DataFrame(res_lanc.data)
@@ -28,14 +27,14 @@ if res_lanc.data and res_contas.data:
     # Merge das tabelas
     df = df_l.merge(df_c, left_on='conta_id', right_on='id', suffixes=('_lanc', '_conta'))
     
-    # --- Detecção inteligente da coluna de data ---
+    # Detecção inteligente da coluna de data
     possiveis_colunas_data = ['data', 'data_lancamento', 'created_at', 'data_transacao']
     coluna_data = next((col for col in df.columns if col in possiveis_colunas_data), None)
     
     if coluna_data:
         df['data_formatada'] = pd.to_datetime(df[coluna_data])
     else:
-        st.error(f"Erro: Não encontrei uma coluna de data válida. Colunas disponíveis: {list(df.columns)}")
+        st.error(f"Erro: Coluna de data não encontrada. Colunas: {list(df.columns)}")
         st.stop()
 
     # Conversão de valores
@@ -48,38 +47,40 @@ if res_lanc.data and res_contas.data:
     mask = (df['data_formatada'].dt.date >= data_inicio) & (df['data_formatada'].dt.date <= data_fim)
     df_filtrado = df.loc[mask].copy()
 
-    # --- 3. Cálculos do DRE ---
-    def get_valor(categoria):
-        return df_filtrado[df_filtrado[coluna_grupo].str.upper() == categoria.upper()]['valor'].sum()
+    # --- 3. Categorização e Cálculos ---
+    # Normalização
+    df_filtrado['grupo_upper'] = df_filtrado[coluna_grupo].str.upper()
 
-    receita_bruta = get_valor('RECEITAS')
-    custos = get_valor('CUSTOS')
-    despesas_op = get_valor('DESPESAS_OPERACIONAIS')
-    despesas_encargos = get_valor('DESPESAS_FINANCEIRAS')
+    # Definição de quais nomes no banco pertencem a cada grupo
+    # Ajuste essas listas caso os nomes no banco sejam diferentes
+    map_receitas = ['RECEITA', 'RECEITAS', 'ENTRADA']
+    map_despesas = ['DESPESA', 'DESPESAS', 'DESPESAS OPERACIONAIS', 'DESPESA OPERACIONAL']
+    map_encargos = ['ENCARGO', 'ENCARGOS', 'DESPESAS DE ENCARGOS', 'DESPESAS FINANCEIRAS', 'FINANCEIRO']
     
-    lucro_bruto = receita_bruta - custos
-    ebitda = lucro_bruto - despesas_op
+    # Cálculos
+    receita_bruta = df_filtrado[df_filtrado['grupo_upper'].isin(map_receitas)]['valor'].sum()
+    despesas_op = df_filtrado[df_filtrado['grupo_upper'].isin(map_despesas)]['valor'].sum()
+    despesas_encargos = df_filtrado[df_filtrado['grupo_upper'].isin(map_encargos)]['valor'].sum()
+    
+    ebitda = receita_bruta - despesas_op
     lucro_liquido = ebitda - despesas_encargos
     
     # --- 4. Exibição ---
     st.subheader(f"Período: {data_inicio.strftime('%d/%m/%Y')} a {data_fim.strftime('%d/%m/%Y')}")
     
-    c1, c2, c3 = st.columns(3)
+    c1, c2 = st.columns(2)
     c1.metric("Receita Bruta", f"R$ {receita_bruta:,.2f}")
-    c2.metric("(-) Custos", f"R$ {custos:,.2f}")
-    c3.metric("(=) Lucro Bruto", f"R$ {lucro_bruto:,.2f}")
+    c2.metric("(-) Despesas Operacionais", f"R$ {despesas_op:,.2f}")
     
     st.divider()
     
-    c4, c5 = st.columns(2)
-    c4.metric("(-) Despesas Operacionais", f"R$ {despesas_op:,.2f}")
-    c5.metric("(=) EBITDA", f"R$ {ebitda:,.2f}")
+    c3, c4 = st.columns(2)
+    c3.metric("(=) EBITDA", f"R$ {ebitda:,.2f}")
+    c4.metric("(-) Despesas de Encargos", f"R$ {despesas_encargos:,.2f}")
     
     st.divider()
     
-    c6, c7 = st.columns(2)
-    c6.metric("(-) Despesas de Encargos", f"R$ {despesas_encargos:,.2f}")
-    c7.metric("(=) Lucro Líquido", f"R$ {lucro_liquido:,.2f}", delta_color="normal")
+    st.metric("(=) Lucro Líquido", f"R$ {lucro_liquido:,.2f}", delta_color="normal")
 
 else:
     st.info("Nenhum dado encontrado para gerar o DRE.")
