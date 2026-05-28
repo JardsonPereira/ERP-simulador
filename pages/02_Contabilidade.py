@@ -7,7 +7,7 @@ check_auth()
 supabase = get_supabase()
 user_id = st.session_state.user.id
 
-# Layout wide para melhor aproveitamento de tela
+# Layout wide para melhor aproveitamento de espaço em telas grandes
 st.set_page_config(layout="wide")
 st.title("📈 Demonstrações Contábeis")
 
@@ -40,19 +40,11 @@ st.markdown("---")
 if st.session_state.view_mode == "Razonetes":
     st.subheader("📊 Razonetes (Livro Razão em T)")
     
-    # CSS para o desenho do T
+    # CSS para o desenho do "T" e limitação de espaço
     st.markdown("""
         <style>
-        .t-account {
-            border: 2px solid #333;
-            border-radius: 5px;
-            padding: 10px;
-            margin-bottom: 30px;
-            background-color: #f9f9f9;
-        }
-        .vertical-line {
-            border-right: 2px solid #333;
-        }
+        .t-account { border: 2px solid #333; border-radius: 5px; padding: 10px; margin-bottom: 20px; background-color: #fcfcfc; max-width: 900px; }
+        .vertical-line { border-right: 2px solid #333; }
         </style>
     """, unsafe_allow_html=True)
     
@@ -73,7 +65,6 @@ if st.session_state.view_mode == "Razonetes":
             cred = df_conta[df_conta['operacao'] == 'Crédito']
             saldo = deb['valor'].sum() - cred['valor'].sum()
             
-            # Início do T
             st.markdown('<div class="t-account">', unsafe_allow_html=True)
             
             # Cabeçalho da Conta (Barra superior do T)
@@ -83,28 +74,29 @@ if st.session_state.view_mode == "Razonetes":
                 </div>
             """, unsafe_allow_html=True)
             
-            # Colunas com a linha vertical separadora
-            c_t1, c_t2 = st.columns([1, 1])
+            c_t1, c_t2 = st.columns(2)
             
+            # Coluna Débito (Esquerda)
             with c_t1:
                 st.markdown("<div class='vertical-line'>", unsafe_allow_html=True)
                 st.markdown("<h6 style='color: green; text-align: center;'>Débito</h6>", unsafe_allow_html=True)
                 st.dataframe(
                     deb[['data_lancamento', 'valor', 'justificativa']], 
-                    use_container_width=True, height=120, hide_index=True, column_config=col_config
+                    use_container_width=True, height=80, hide_index=True, column_config=col_config
                 )
-                st.markdown(f"<p style='color: green; font-weight: bold; text-align: right; padding-right: 10px;'>Total: R$ {deb['valor'].sum():,.2f}</p>", unsafe_allow_html=True)
+                st.markdown(f"<p style='color: green; font-weight: bold; text-align: right; padding-right: 15px;'>Total: R$ {deb['valor'].sum():,.2f}</p>", unsafe_allow_html=True)
                 st.markdown("</div>", unsafe_allow_html=True)
             
+            # Coluna Crédito (Direita)
             with c_t2:
                 st.markdown("<h6 style='color: red; text-align: center;'>Crédito</h6>", unsafe_allow_html=True)
                 st.dataframe(
                     cred[['data_lancamento', 'valor', 'justificativa']], 
-                    use_container_width=True, height=120, hide_index=True, column_config=col_config
+                    use_container_width=True, height=80, hide_index=True, column_config=col_config
                 )
-                st.markdown(f"<p style='color: red; font-weight: bold; text-align: right; padding-right: 10px;'>Total: R$ {cred['valor'].sum():,.2f}</p>", unsafe_allow_html=True)
+                st.markdown(f"<p style='color: red; font-weight: bold; text-align: right; padding-right: 15px;'>Total: R$ {cred['valor'].sum():,.2f}</p>", unsafe_allow_html=True)
             
-            # Saldo
+            # Saldo Final
             st.markdown(f"""
                 <div style="border-top: 2px solid #333; margin-top: 10px; padding-top: 10px; text-align: center; font-weight: bold;">
                     SALDO FINAL: R$ {saldo:,.2f}
@@ -117,7 +109,21 @@ elif st.session_state.view_mode == "Balancete":
     st.subheader("📑 Balancete de Verificação")
     bal = df.groupby(['Conta', 'operacao'])['valor'].sum().unstack(fill_value=0)
     bal['Saldo'] = bal.get('Débito', 0) - bal.get('Crédito', 0)
-    st.dataframe(bal, use_container_width=True)
+    
+    t_deb = bal['Débito'].sum()
+    t_cred = bal['Crédito'].sum()
+    
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Total Débitos", f"R$ {t_deb:,.2f}")
+    m2.metric("Total Créditos", f"R$ {t_cred:,.2f}")
+    m3.metric("Diferença", f"R$ {t_deb - t_cred:,.2f}")
+    
+    st.markdown("---")
+    st.dataframe(bal, use_container_width=True, column_config={
+        "Débito": st.column_config.NumberColumn(format="R$ %.2f"),
+        "Crédito": st.column_config.NumberColumn(format="R$ %.2f"),
+        "Saldo": st.column_config.NumberColumn(format="R$ %.2f")
+    })
 
 elif st.session_state.view_mode == "Balanço":
     st.subheader("⚖️ Balanço Patrimonial")
