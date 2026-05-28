@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+from datetime import date
 from utils import get_supabase, check_auth
 
 # --- Configuração ---
@@ -10,145 +11,92 @@ user_id = st.session_state.user.id
 
 st.title("📈 Demonstrações Contábeis")
 
-# --- Inicialização ---
-if 'view_mode' not in st.session_state:
-    st.session_state.view_mode = "Razonetes"
-
 # --- Dados ---
 res_lanc = supabase.table("lancamentos").select("*").eq("user_id", user_id).execute()
 res_contas = supabase.table("contas").select("id, nome_conta, grupo").eq("user_id", user_id).execute()
-id_to_name = {c['id']: c['nome_conta'] for c in res_contas.data}
 
-if not res_lanc.data:
-    st.warning("Nenhum lançamento encontrado.")
+df_lanc = pd.DataFrame(res_lanc.data) if res_lanc.data else pd.DataFrame()
+df_contas = pd.DataFrame(res_contas.data) if res_contas.data else pd.DataFrame()
+
+if df_lanc.empty or df_contas.empty:
+    st.warning("Dados não carregados.")
     st.stop()
 
-df = pd.DataFrame(res_lanc.data)
-df["Conta"] = df["conta_id"].map(id_to_name)
+# Verificar coluna 'grupo' (Proteção contra KeyError)
+if 'grupo' not in df_contas.columns:
+    st.error(f"Erro: A coluna 'grupo' não foi encontrada. Colunas: {df_contas.columns.tolist()}")
+    st.stop()
+
+# Merge
+df = pd.merge(df_lanc, df_contas, left_on='conta_id', right_on='id', how='left')
+df['grupo'] = df['grupo'].fillna('SEM GRUPO')
+df['data_lancamento'] = pd.to_datetime(df['data_lancamento']).dt.date
+
+# --- FILTRO NA SIDEBAR ---
+st.sidebar.header("🗓️ Filtros")
+data_inicio = st.sidebar.date_input("Data Início", value=date(2026, 1, 1))
+data_fim = st.sidebar.date_input("Data Fim", value=date.today())
+
+# Aplicar filtro ao DataFrame principal
+mask = (df['data_lancamento'] >= data_inicio) & (df['data_lancamento'] <= data_fim)
+df_filtered = df.loc[mask]
 
 # --- Navegação ---
-c1, c2, c3, c4 = st.columns(4)
-if c1.button("📂 Plano de Contas", use_container_width=True): st.session_state.view_mode = "Plano de Contas"
-if c2.button("📊 Razonetes", use_container_width=True): st.session_state.view_mode = "Razonetes"
-if c3.button("📑 Balancete", use_container_width=True): st.session_state.view_mode = "Balancete"
-if c4.button("⚖️ Balanço Patrimonial", use_container_width=True): st.session_state.view_mode = "Balanço"
+if 'view_mode' not in st.session_state: st.session_state.view_mode = "Auditoria"
+c1, c2, c3, c4, c5 = st.columns(5)
+if c1.button("🔍 Auditoria"): st.session_state.view_mode = "Auditoria"
+if c2.button("📂 Plano de Contas"): st.session_state.view_mode = "Plano de Contas"
+if c3.button("📊 Razonetes"): st.session_state.view_mode = "Razonetes"
+if c4.button("📑 Balancete"): st.session_state.view_mode = "Balancete"
+if c5.button("⚖️ Balanço"): st.session_state.view_mode = "Balanço"
 
 st.markdown("---")
 
-# --- Estilos CSS ---
-st.markdown("""
-    <style>
-    .t-wrapper { border: 1px solid #ccc; padding: 5px; margin-bottom: 10px; border-radius: 4px; background: #fafafa; }
-    .t-header { background: #333; color: white; text-align: center; font-weight: bold; padding: 2px; border-radius: 2px; }
-    .total-deb { color: green; font-size: 0.9em; font-weight: bold; text-align: right; }
-    .total-cred { color: red; font-size: 0.9em; font-weight: bold; text-align: right; }
-    </style>
-""", unsafe_allow_html=True)
+# --- Lógica de Exibição (Usando df_filtered) ---
 
-# Configuração dos Dataframes
-col_config = {
-    "data_lancamento": st.column_config.DateColumn("Data", width="small"),
-    "valor": st.column_config.NumberColumn("Valor", width="small", format="R$ %.2f"),
-    "justificativa": st.column_config.TextColumn("Justif.", width="medium")
-}
+if st.session_state.view_mode == "Auditoria":
+    st.subheader("🔍 Auditoria")
+    sem_grupo = df_filtered[df_filtered['grupo'] == 'SEM GRUPO']
+    if not sem_grupo.empty:
+        st.warning(f"⚠️ {len(sem_grupo)} lançamentos sem grupo no período!")
+        st.dataframe(sem_grupo)
+    else:
+        st.success("✅ Todos os lançamentos no período têm grupo definido.")
 
-# --- Exibição ---
-
-if st.session_state.view_mode == "Plano de Contas":
-    st.subheader("📂 Estrutura do Plano de Contas")
-    df_contas = pd.DataFrame(res_contas.data)
-    for grupo in df_contas['grupo'].unique():
-        st.markdown(f"**Grupo:** {grupo}")
-        contas = df_contas[df_contas['grupo'] == grupo]['nome_conta'].tolist()
-        st.write(", ".join(contas))
-        st.write("---")
+elif st.session_state.view_mode == "Plano de Contas":
+    st.dataframe(df_contas[['nome_conta', 'grupo']])
 
 elif st.session_state.view_mode == "Razonetes":
-    st.subheader("📊 Razonetes: Todos os Lançamentos")
-    
-    for grupo in df['grupo'].unique():
-        st.markdown(f"#### 📂 {grupo}")
-        contas = df[df['grupo'] == grupo]['Conta'].unique()
-        cols = st.columns(2)
-        for i, conta in enumerate(contas):
-            df_c = df[(df['grupo'] == grupo) & (df['Conta'] == conta)]
-            # Separando e garantindo valores positivos
-            deb = df_c[df_c['operacao'] == 'Débito'].copy()
-            cred = df_c[df_c['operacao'] == 'Crédito'].copy()
-            deb['valor'] = deb['valor'].abs()
-            cred['valor'] = cred['valor'].abs()
-            
-            saldo = deb['valor'].sum() - cred['valor'].sum()
-            
-            with cols[i % 2]:
-                st.markdown('<div class="t-wrapper">', unsafe_allow_html=True)
-                st.markdown(f'<div class="t-header">{conta.upper()}</div>', unsafe_allow_html=True)
-                
-                c_d, c_c = st.columns(2)
-                with c_d:
-                    st.markdown("<p style='text-align:center; color:green; font-weight:bold;'>Débito</p>", unsafe_allow_html=True)
-                    st.dataframe(deb[['data_lancamento', 'valor', 'justificativa']], height=150, hide_index=True, column_config=col_config, use_container_width=True)
-                    st.markdown(f"<p class='total-deb'>Total D: R$ {deb['valor'].sum():,.2f}</p>", unsafe_allow_html=True)
-                with c_c:
-                    st.markdown("<p style='text-align:center; color:red; font-weight:bold;'>Crédito</p>", unsafe_allow_html=True)
-                    st.dataframe(cred[['data_lancamento', 'valor', 'justificativa']], height=150, hide_index=True, column_config=col_config, use_container_width=True)
-                    st.markdown(f"<p class='total-cred'>Total C: R$ {cred['valor'].sum():,.2f}</p>", unsafe_allow_html=True)
-                
-                st.markdown(f"<div style='border-top:1px solid #ccc; text-align:center; font-weight:bold;'>SALDO FINAL: R$ {saldo:,.2f}</div>", unsafe_allow_html=True)
-                st.markdown('</div>', unsafe_allow_html=True)
+    st.subheader("📊 Razonetes")
+    for g in df_filtered['grupo'].unique():
+        st.markdown(f"### {g}")
+        for conta in df_filtered[df_filtered['grupo'] == g]['nome_conta'].unique():
+            c_df = df_filtered[(df_filtered['grupo'] == g) & (df_filtered['nome_conta'] == conta)]
+            deb = c_df[c_df['operacao'] == 'Débito']['valor'].sum()
+            cred = c_df[c_df['operacao'] == 'Crédito']['valor'].sum()
+            st.write(f"**{conta}**: D: R$ {deb:,.2f} | C: R$ {cred:,.2f} | Saldo: R$ {deb-cred:,.2f}")
 
 elif st.session_state.view_mode == "Balancete":
-    st.subheader("📑 Balancete de Verificação")
-    bal = df.groupby(['Conta', 'operacao'])['valor'].sum().unstack(fill_value=0)
-    if 'Débito' not in bal.columns: bal['Débito'] = 0.0
-    if 'Crédito' not in bal.columns: bal['Crédito'] = 0.0
-    bal['Saldo'] = bal['Débito'] - bal['Crédito']
-    
-    t_deb = bal['Débito'].sum()
-    t_cred = bal['Crédito'].sum()
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Total Débitos", f"R$ {t_deb:,.2f}")
-    c2.metric("Total Créditos", f"R$ {t_cred:,.2f}")
-    c3.metric("Diferença", f"R$ {t_deb - t_cred:,.2f}")
-    
-    st.dataframe(bal, use_container_width=True, column_config={
-        "Débito": st.column_config.NumberColumn("Débito (R$)", format="R$ %.2f"),
-        "Crédito": st.column_config.NumberColumn("Crédito (R$)", format="R$ %.2f"),
-        "Saldo": st.column_config.NumberColumn("Saldo (R$)", format="R$ %.2f")
-    })
+    st.subheader("📑 Balancete")
+    bal = df_filtered.groupby(['nome_conta', 'operacao'])['valor'].sum().unstack(fill_value=0)
+    bal['Saldo'] = bal.get('Débito', 0) - bal.get('Crédito', 0)
+    st.dataframe(bal)
 
 elif st.session_state.view_mode == "Balanço":
     st.subheader("⚖️ Balanço Patrimonial")
-    
-    # Cálculos agrupados
-    a_c = df[(df['grupo']=='Ativo Circulante') & (df['operacao']=='Débito')]['valor'].sum() - df[(df['grupo']=='Ativo Circulante') & (df['operacao']=='Crédito')]['valor'].sum()
-    a_nc = df[(df['grupo']=='Ativo Não Circulante') & (df['operacao']=='Débito')]['valor'].sum() - df[(df['grupo']=='Ativo Não Circulante') & (df['operacao']=='Crédito')]['valor'].sum()
-    p_c = df[(df['grupo']=='Passivo Circulante') & (df['operacao']=='Crédito')]['valor'].sum() - df[(df['grupo']=='Passivo Circulante') & (df['operacao']=='Débito')]['valor'].sum()
-    p_nc = df[(df['grupo']=='Passivo Não Circulante') & (df['operacao']=='Crédito')]['valor'].sum() - df[(df['grupo']=='Passivo Não Circulante') & (df['operacao']=='Débito')]['valor'].sum()
-    pl = df[(df['grupo']=='Patrimônio Líquido') & (df['operacao']=='Crédito')]['valor'].sum() - df[(df['grupo']=='Patrimônio Líquido') & (df['operacao']=='Débito')]['valor'].sum()
-    
-    rec = df[df['grupo']=='Receitas']['valor'].sum()
-    desp = df[df['grupo']=='Despesas']['valor'].sum()
-    res = rec - desp
-    
-    tot_a = a_c + a_nc
-    tot_p_pl = p_c + p_nc + pl + res
-    
-    col_a, col_p = st.columns(2)
-    with col_a:
-        st.markdown("### 🏢 ATIVO")
-        st.metric("Total Ativo", f"R$ {tot_a:,.2f}")
-        st.write(f"- Ativo Circulante: R$ {a_c:,.2f}")
-        st.write(f"- Ativo Não Circulante: R$ {a_nc:,.2f}")
-    with col_p:
-        st.markdown("### 🏦 PASSIVO + PL")
-        st.metric("Total Origens", f"R$ {tot_p_pl:,.2f}")
-        st.write(f"- Passivo Circulante: R$ {p_c:,.2f}")
-        st.write(f"- Passivo Não Circulante: R$ {p_nc:,.2f}")
-        st.write(f"- Patrimônio Líquido: R$ {pl:,.2f}")
-        st.write(f"- Resultado do Exercício: R$ {res:,.2f}")
+    def get_saldo(g, n='D'):
+        g_df = df_filtered[df_filtered['grupo'] == g]
+        d = g_df[g_df['operacao'] == 'Débito']['valor'].sum()
+        c = g_df[g_df['operacao'] == 'Crédito']['valor'].sum()
+        return (d-c) if n=='D' else (c-d)
 
-    if abs(tot_a - tot_p_pl) < 0.01:
-        st.success("✅ Balanço Equilibrado!")
-    else:
-        st.error(f"⚠️ Desequilibrado! Diferença: R$ {abs(tot_a - tot_p_pl):,.2f}")
+    ac, anc = get_saldo('Ativo Circulante', 'D'), get_saldo('Ativo Não Circulante', 'D')
+    pc, pnc = get_saldo('Passivo Circulante', 'C'), get_saldo('Passivo Não Circulante', 'C')
+    pl, res = get_saldo('Patrimônio Líquido', 'C'), (get_saldo('Receitas', 'C') - get_saldo('Despesas', 'D'))
+    
+    col1, col2 = st.columns(2)
+    col1.metric("Total ATIVO", f"R$ {ac + anc:,.2f}")
+    col2.metric("Total PASSIVO + PL", f"R$ {pc + pnc + pl + res:,.2f}")
+    
+    if abs((ac + anc) - (pc + pnc + pl + res)) > 0.01:
+        st.error(f"⚠️ Diferença: R$ {(ac + anc) - (pc + pnc + pl + res):,.2f}")
