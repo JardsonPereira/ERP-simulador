@@ -1,219 +1,58 @@
 import streamlit as st
-
 import pandas as pd
-
-import sys, os
-
-from datetime import date
-
-from utils import get_supabase, check_auth, show_auth_sidebar
-
-
-
-# Configuração de caminhos
-
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-
-
-
-# 1. Proteção de Autenticação
+from utils import get_supabase, check_auth
 
 check_auth()
-
-if "user" not in st.session_state or st.session_state.user is None:
-
-    st.warning("Por favor, faça login para acessar esta página.")
-
-    st.stop()
-
-
-
 supabase = get_supabase()
-
-show_auth_sidebar(supabase)
-
 user_id = st.session_state.user.id
 
+st.title("📈 Demonstrações Contábeis")
 
+# 1. Buscar lançamentos e processar
+res_lanc = supabase.table("lancamentos").select("*").eq("user_id", user_id).execute()
+if not res_lanc.data:
+    st.info("Nenhum lançamento encontrado para gerar as demonstrações.")
+    st.stop()
 
-st.title("💰 Lançamentos")
+df = pd.DataFrame(res_lanc.data)
 
+# 2. Lógica do Balancete (Consolidação)
+# Agrupamos por conta e tipo para obter os saldos
+def calcular_balancete(df):
+    balancete = df.groupby(['conta_id', 'operacao'])['valor'].sum().unstack(fill_value=0)
+    balancete['Saldo'] = balancete.get('Débito', 0) - balancete.get('Crédito', 0)
+    return balancete
 
+balancete = calcular_balancete(df)
 
-# Carregar Contas
-
-res_contas = supabase.table("contas").select("id, nome_conta").eq("user_id", user_id).execute()
-
-dicionario_contas = {c['nome_conta']: c['id'] for c in res_contas.data}
-
-lista_contas = ["-- Selecionar Conta --"] + list(dicionario_contas.keys())
-
-
-
-opcoes_grupo = [
-
-    "Ativo Circulante", "Ativo Não Circulante", "Passivo Circulante", 
-
-    "Passivo Não Circulante", "Patrimônio Líquido", "Receitas", 
-
-    "Despesas", "Encargos Financeiros", "Transação Interna"
-
-]
-
-
-
-# --- Formulário de Cadastro ---
-
-with st.form("lancamento_form", clear_on_submit=True):
-
-    st.subheader("📝 Criar Novo Lançamento")
-
-    c1, c2 = st.columns(2)
-
-    with c1: 
-
-        conta_sel = st.selectbox("Conta", lista_contas)
-
-    with c2: 
-
-        nova_conta = st.text_input("OU Criar Nova Conta")
-
-    
-
-    justificativa = st.text_input("Justificativa")
-
-    
-
-    c3, c4 = st.columns(2)
-
-    with c3:
-
-        data = st.date_input("Data", date.today())
-
-        valor = st.number_input("Valor (R$)", min_value=0.0, format="%.2f")
-
-    with c4:
-
-        operacao = st.selectbox("Operação", ["Débito", "Crédito"])
-
-        grupo = st.selectbox("Grupo", opcoes_grupo)
-
-        status = st.selectbox("Status", ["Entrada", "Saída", "Pendente", "Investimento", "Transação Interna"])
-
+# 3. Exibição dos Razonetes (Visualização em T)
+st.subheader("📊 Razonetes (Livro Razão)")
+for conta_id, group in df.groupby('conta_id'):
+    with st.expander(f"Conta ID: {conta_id}"):
+        col1, col2 = st.columns(2)
+        deb = group[group['operacao'] == 'Débito']
+        cred = group[group['operacao'] == 'Crédito']
         
+        col1.write("**Débito**")
+        col1.table(deb[['data_lancamento', 'valor', 'justificativa']])
+        col2.write("**Crédito**")
+        col2.table(cred[['data_lancamento', 'valor', 'justificativa']])
+        st.write(f"**Saldo Final: R$ {deb['valor'].sum() - cred['valor'].sum():,.2f}**")
 
-    if st.form_submit_button("Gravar"):
-
-        conta_id = dicionario_contas.get(conta_sel)
-
-        if not conta_id and nova_conta:
-
-            res_nova = supabase.table("contas").insert({"user_id": user_id, "nome_conta": nova_conta, "grupo": grupo}).execute()
-
-            conta_id = res_nova.data[0]['id']
-
-        
-
-        if conta_id:
-
-            supabase.table("lancamentos").insert({
-
-                "user_id": user_id, "conta_id": conta_id, "operacao": operacao, 
-
-                "valor": float(abs(valor)), "data_lancamento": str(data), 
-
-                "status_financeiro": status, "grupo": grupo, "justificativa": justificativa
-
-            }).execute()
-
-            st.rerun()
-
-
-
-# --- Histórico e Edição ---
-
+# 4. Balanço Patrimonial Simples
 st.markdown("---")
+st.subheader("⚖️ Balanço Patrimonial")
 
-st.subheader("📊 Histórico")
+# Mapeamento simples de grupos para Balanço (deve ser refinado conforme sua lógica)
+ativo = df[df['grupo'].isin(['Ativo Circulante', 'Ativo Não Circulante'])]
+passivo = df[df['grupo'].isin(['Passivo Circulante', 'Passivo Não Circulante'])]
+pl = df[df['grupo'].isin(['Patrimônio Líquido'])]
 
+col_a, col_p = st.columns(2)
+col_a.metric("Total Ativo", f"R$ {ativo['valor'].sum():,.2f}")
+col_p.metric("Total Passivo + PL", f"R$ {(passivo['valor'].sum() + pl['valor'].sum()):,.2f}")
 
-
-res_lanc = supabase.table("lancamentos").select("*").eq("user_id", user_id).order("data_lancamento", desc=True).execute()
-
-
-
-if res_lanc.data:
-
-    df = pd.DataFrame(res_lanc.data)
-
-    id_to_name = {v: k for k, v in dicionario_contas.items()}
-
-    df["Conta"] = df["conta_id"].map(id_to_name)
-
-    
-
-    # Preparação dos dados
-
-    df_exibicao = df[["id", "data_lancamento", "Conta", "valor", "justificativa", "operacao", "status_financeiro", "grupo"]].copy()
-
-    df_exibicao["data_lancamento"] = pd.to_datetime(df_exibicao["data_lancamento"])
-
-    df_exibicao["valor"] = df_exibicao["valor"].fillna(0.0)
-
-
-
-    # Editor de dados
-
-    edited_df = st.data_editor(
-
-        df_exibicao, 
-
-        use_container_width=True,
-
-        hide_index=True,
-
-        column_config={
-
-            "id": st.column_config.NumberColumn("ID", disabled=True),
-
-            "valor": st.column_config.NumberColumn("Valor (R$)", format="%.2f"),
-
-            "data_lancamento": st.column_config.DateColumn("Data"),
-
-            "Conta": st.column_config.TextColumn("Conta", disabled=True),
-
-            "operacao": st.column_config.SelectboxColumn("Operação", options=["Débito", "Crédito"]),
-
-            "status_financeiro": st.column_config.SelectboxColumn("Status", options=["Entrada", "Saída", "Pendente", "Investimento", "Transação Interna"]),
-
-            "grupo": st.column_config.SelectboxColumn("Grupo", options=opcoes_grupo)
-
-        }
-
-    )
-
-
-
-    if st.button("💾 Salvar Alterações"):
-
-        for i, row in edited_df.iterrows():
-
-            if not row.equals(df_exibicao.iloc[i]):
-
-                supabase.table("lancamentos").update({
-
-                    "valor": float(row["valor"]),
-
-                    "justificativa": row["justificativa"],
-
-                    "status_financeiro": row["status_financeiro"],
-
-                    "operacao": row["operacao"],
-
-                    "grupo": row["grupo"]
-
-                }).eq("id", row["id"]).execute()
-
-        st.success("Alterações salvas com sucesso!")
-
-        st.rerun() 
+if abs(ativo['valor'].sum() - (passivo['valor'].sum() + pl['valor'].sum())) < 0.01:
+    st.success("Balanço Equilibrado!")
+else:
+    st.error("Balanço Desequilibrado! Verifique as partidas dobradas.")
