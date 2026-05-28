@@ -3,70 +3,84 @@ import pandas as pd
 from datetime import date
 from utils import get_supabase, check_auth
 
+# --- Configuração Inicial ---
 check_auth()
 supabase = get_supabase()
 user_id = st.session_state.user.id
 
-st.title("📊 DRE Detalhado")
+st.set_page_config(page_title="DRE Detalhado", layout="wide")
+st.title("📊 DRE - Demonstração do Resultado")
 
 # --- 1. Filtro de Data ---
 col1, col2 = st.columns(2)
 data_inicio = col1.date_input("Data Início", date(date.today().year, date.today().month, 1))
 data_fim = col2.date_input("Data Fim", date.today())
 
-# Busca os dados
+# --- 2. Busca e Preparação dos Dados ---
 res_lanc = supabase.table("lancamentos").select("*").eq("user_id", user_id).execute()
-res_contas = supabase.table("contas").select("*").eq("user_id", user_id).execute()
+res_contas = supabase.table("contas").select("*").eq("user_id", user__id).execute()
 
 if res_lanc.data and res_contas.data:
     df_l = pd.DataFrame(res_lanc.data)
     df_c = pd.DataFrame(res_contas.data)
     
-    # Merge
+    # Merge das tabelas
     df = df_l.merge(df_c, left_on='conta_id', right_on='id', suffixes=('_lanc', '_conta'))
     
-    # Conversão de tipos
-    df['valor'] = pd.to_numeric(df['valor'], errors='coerce')
-    df['data'] = pd.to_datetime(df['data']) # Certifique-se que sua coluna se chama 'data'
+    # --- CORREÇÃO DO KEYERROR (Detecção inteligente da coluna de data) ---
+    possiveis_colunas_data = ['data', 'data_lancamento', 'created_at', 'data_transacao']
+    coluna_data = next((col for col in df.columns if col in possiveis_colunas_data), None)
+    
+    if coluna_data:
+        df['data_formatada'] = pd.to_datetime(df[coluna_data])
+    else:
+        st.error(f"Erro: Não encontrei uma coluna de data válida. Colunas disponíveis: {list(df.columns)}")
+        st.stop()
+
+    # Conversão de valores
+    df['valor'] = pd.to_numeric(df['valor'], errors='coerce').fillna(0)
+    
+    # Identificação do grupo (busca 'grupo' em qualquer coluna que tenha esse nome após o merge)
+    coluna_grupo = 'grupo_lanc' if 'grupo_lanc' in df.columns else 'grupo_conta'
     
     # Aplicação do Filtro
-    mask = (df['data'].dt.date >= data_inicio) & (df['data'].dt.date <= data_fim)
-    df_filtrado = df.loc[mask]
+    mask = (df['data_formatada'].dt.date >= data_inicio) & (df['data_formatada'].dt.date <= data_fim)
+    df_filtrado = df.loc[mask].copy()
 
-    # Busca 'grupo' de forma segura
-    df_filtrado['grupo'] = df_filtrado.get('grupo_lanc', df_filtrado.get('grupo_conta', 'Outros'))
+    # --- 3. Cálculos do DRE ---
+    # Ajuste os nomes abaixo para bater exatamente com os nomes no seu banco (ex: 'RECEITAS')
+    def get_valor(categoria):
+        return df_filtrado[df_filtrado[coluna_grupo].str.upper() == categoria.upper()]['valor'].sum()
 
-    # --- 2. Cálculos do DRE ---
-    # Nota: Ajuste as strings ('RECEITAS', 'CUSTOS', etc) para o que está salvo no seu banco
-    receita_bruta = df_filtrado[df_filtrado['grupo'].str.upper() == 'RECEITAS']['valor'].sum()
-    custos = df_filtrado[df_filtrado['grupo'].str.upper() == 'CUSTOS']['valor'].sum()
-    despesas_op = df_filtrado[df_filtrado['grupo'].str.upper() == 'DESPESAS_OPERACIONAIS']['valor'].sum()
-    despesas_fin = df_filtrado[df_filtrado['grupo'].str.upper() == 'DESPESAS_FINANCEIRAS']['valor'].sum()
+    receita_bruta = get_valor('RECEITAS')
+    custos = get_valor('CUSTOS')
+    despesas_op = get_valor('DESPESAS_OPERACIONAIS')
+    despesas_encargos = get_valor('DESPESAS_FINANCEIRAS') # Ajuste se o nome for diferente
     
     lucro_bruto = receita_bruta - custos
     ebitda = lucro_bruto - despesas_op
-    lucro_liquido = ebitda - despesas_fin
+    lucro_liquido = ebitda - despesas_encargos
     
-    # --- 3. Exibição ---
-    st.subheader(f"Período: {data_inicio.strftime('%d/%m/%Y')} até {data_fim.strftime('%d/%m/%Y')}")
+    # --- 4. Exibição ---
+    st.subheader(f"Período: {data_inicio.strftime('%d/%m/%Y')} a {data_fim.strftime('%d/%m/%Y')}")
     
-    # Métricas principais
-    col_a, col_b, col_c = st.columns(3)
-    col_a.metric("Receita Bruta", f"R$ {receita_bruta:,.2f}")
-    col_b.metric("(-) Custos", f"R$ {custos:,.2f}")
-    col_c.metric("(=) Lucro Bruto", f"R$ {lucro_bruto:,.2f}")
-    
-    st.divider()
-    
-    col_d, col_e = st.columns(2)
-    col_d.metric("(-) Despesas Operacionais", f"R$ {despesas_op:,.2f}")
-    col_e.metric("(=) EBITDA", f"R$ {ebitda:,.2f}")
+    # Layout em colunas
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Receita Bruta", f"R$ {receita_bruta:,.2f}")
+    c2.metric("(-) Custos", f"R$ {custos:,.2f}")
+    c3.metric("(=) Lucro Bruto", f"R$ {lucro_bruto:,.2f}")
     
     st.divider()
     
-    col_f, col_g = st.columns(2)
-    col_f.metric("(-) Despesas Financeiras", f"R$ {despesas_fin:,.2f}")
-    col_g.metric("(=) Lucro Líquido", f"R$ {lucro_liquido:,.2f}")
+    c4, c5 = st.columns(2)
+    c4.metric("(-) Despesas Operacionais", f"R$ {despesas_op:,.2f}")
+    c5.metric("(=) EBITDA", f"R$ {ebitda:,.2f}")
+    
+    st.divider()
+    
+    c6, c7 = st.columns(2)
+    c6.metric("(-) Despesas de Encargos", f"R$ {despesas_encargos:,.2f}")
+    c7.metric("(=) Lucro Líquido", f"R$ {lucro_liquido:,.2f}", delta_color="normal")
 
 else:
-    st.info("Nenhum dado encontrado para o período selecionado.")
+    st.info("Nenhum dado encontrado para gerar o DRE.")
