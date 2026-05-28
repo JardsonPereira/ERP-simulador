@@ -7,7 +7,6 @@ check_auth()
 supabase = get_supabase()
 user_id = st.session_state.user.id
 
-# Layout wide para melhor aproveitamento de espaço em telas grandes
 st.set_page_config(layout="wide")
 st.title("📈 Demonstrações Contábeis")
 
@@ -40,7 +39,6 @@ st.markdown("---")
 if st.session_state.view_mode == "Razonetes":
     st.subheader("📊 Razonetes (Livro Razão em T)")
     
-    # CSS para o desenho do "T" e limitação de espaço
     st.markdown("""
         <style>
         .t-account { border: 2px solid #333; border-radius: 5px; padding: 10px; margin-bottom: 20px; background-color: #fcfcfc; max-width: 900px; }
@@ -63,11 +61,20 @@ if st.session_state.view_mode == "Razonetes":
             df_conta = df_grupo[df_grupo['Conta'] == conta]
             deb = df_conta[df_conta['operacao'] == 'Débito']
             cred = df_conta[df_conta['operacao'] == 'Crédito']
-            saldo = deb['valor'].sum() - cred['valor'].sum()
+            saldo_valor = deb['valor'].sum() - cred['valor'].sum()
             
+            # Lógica para definir natureza do saldo
+            if saldo_valor > 0:
+                label_saldo = f"SALDO DEVEDOR: R$ {saldo_valor:,.2f}"
+                bg_color = "green"
+            elif saldo_valor < 0:
+                label_saldo = f"SALDO CREDOR: R$ {abs(saldo_valor):,.2f}"
+                bg_color = "red"
+            else:
+                label_saldo = "SALDO ZERADO"
+                bg_color = "black"
+
             st.markdown('<div class="t-account">', unsafe_allow_html=True)
-            
-            # Cabeçalho da Conta (Barra superior do T)
             st.markdown(f"""
                 <div style="background-color: black; color: white; padding: 5px; text-align: center; font-weight: bold; border-bottom: 2px solid #333; margin-bottom: 10px;">
                     {conta.upper()}
@@ -75,59 +82,52 @@ if st.session_state.view_mode == "Razonetes":
             """, unsafe_allow_html=True)
             
             c_t1, c_t2 = st.columns(2)
-            
-            # Coluna Débito (Esquerda)
             with c_t1:
                 st.markdown("<div class='vertical-line'>", unsafe_allow_html=True)
                 st.markdown("<h6 style='color: green; text-align: center;'>Débito</h6>", unsafe_allow_html=True)
-                st.dataframe(
-                    deb[['data_lancamento', 'valor', 'justificativa']], 
-                    use_container_width=True, height=80, hide_index=True, column_config=col_config
-                )
+                st.dataframe(deb[['data_lancamento', 'valor', 'justificativa']], use_container_width=True, height=80, hide_index=True, column_config=col_config)
                 st.markdown(f"<p style='color: green; font-weight: bold; text-align: right; padding-right: 15px;'>Total: R$ {deb['valor'].sum():,.2f}</p>", unsafe_allow_html=True)
                 st.markdown("</div>", unsafe_allow_html=True)
-            
-            # Coluna Crédito (Direita)
             with c_t2:
                 st.markdown("<h6 style='color: red; text-align: center;'>Crédito</h6>", unsafe_allow_html=True)
-                st.dataframe(
-                    cred[['data_lancamento', 'valor', 'justificativa']], 
-                    use_container_width=True, height=80, hide_index=True, column_config=col_config
-                )
+                st.dataframe(cred[['data_lancamento', 'valor', 'justificativa']], use_container_width=True, height=80, hide_index=True, column_config=col_config)
                 st.markdown(f"<p style='color: red; font-weight: bold; text-align: right; padding-right: 15px;'>Total: R$ {cred['valor'].sum():,.2f}</p>", unsafe_allow_html=True)
             
-            # Saldo Final
             st.markdown(f"""
-                <div style="border-top: 2px solid #333; margin-top: 10px; padding-top: 10px; text-align: center; font-weight: bold;">
-                    SALDO FINAL: R$ {saldo:,.2f}
+                <div style="background-color: {bg_color}; color: white; padding: 5px; text-align: center; border-radius: 5px; margin-top: 10px; font-weight: bold;">
+                    {label_saldo}
                 </div>
             """, unsafe_allow_html=True)
-            
             st.markdown('</div>', unsafe_allow_html=True)
 
 elif st.session_state.view_mode == "Balancete":
     st.subheader("📑 Balancete de Verificação")
+    
+    # Criar tabela dinâmica
     bal = df.groupby(['Conta', 'operacao'])['valor'].sum().unstack(fill_value=0)
-    bal['Saldo'] = bal.get('Débito', 0) - bal.get('Crédito', 0)
     
-    t_deb = bal['Débito'].sum()
-    t_cred = bal['Crédito'].sum()
+    # Calcular saldos separados
+    bal['Saldo Devedor'] = bal.apply(lambda row: row['Débito'] - row['Crédito'] if row['Débito'] > row['Crédito'] else 0, axis=1)
+    bal['Saldo Credor'] = bal.apply(lambda row: row['Crédito'] - row['Débito'] if row['Crédito'] > row['Débito'] else 0, axis=1)
     
+    # Totais
+    t_devedor = bal['Saldo Devedor'].sum()
+    t_credor = bal['Saldo Credor'].sum()
+    
+    # Exibir Totais
     m1, m2, m3 = st.columns(3)
-    m1.metric("Total Débitos", f"R$ {t_deb:,.2f}")
-    m2.metric("Total Créditos", f"R$ {t_cred:,.2f}")
-    m3.metric("Diferença", f"R$ {t_deb - t_cred:,.2f}")
+    m1.metric("Total Saldo Devedor", f"R$ {t_devedor:,.2f}")
+    m2.metric("Total Saldo Credor", f"R$ {t_credor:,.2f}")
+    m3.metric("Diferença", f"R$ {t_devedor - t_credor:,.2f}")
     
     st.markdown("---")
-    st.dataframe(bal, use_container_width=True, column_config={
-        "Débito": st.column_config.NumberColumn(format="R$ %.2f"),
-        "Crédito": st.column_config.NumberColumn(format="R$ %.2f"),
-        "Saldo": st.column_config.NumberColumn(format="R$ %.2f")
+    st.dataframe(bal[['Saldo Devedor', 'Saldo Credor']], use_container_width=True, column_config={
+        "Saldo Devedor": st.column_config.NumberColumn(format="R$ %.2f"),
+        "Saldo Credor": st.column_config.NumberColumn(format="R$ %.2f")
     })
 
 elif st.session_state.view_mode == "Balanço":
     st.subheader("⚖️ Balanço Patrimonial")
-    
     ativo = df[df['grupo'].str.contains('Ativo', na=False)]['valor'].sum()
     passivo = df[df['grupo'].str.contains('Passivo', na=False)]['valor'].sum()
     pl = df[df['grupo'] == 'Patrimônio Líquido']['valor'].sum()
