@@ -45,16 +45,19 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- Funções Auxiliares ---
-def get_group_balance(group_name, nature='D'):
-    """Calcula o saldo de um grupo de contas. 
-    Natureza D (Ativos/Despesas) ou C (Passivos/PL/Receitas)."""
+def get_group_details(group_name, nature):
+    """Calcula saldo do grupo e lista contas individuais."""
     df_g = df[df['grupo'] == group_name]
-    if df_g.empty: return 0.0
+    if df_g.empty: return 0.0, {}
     
+    # Saldo por conta
+    accounts = df_g.groupby('Conta')['valor'].agg(['sum']).to_dict()['sum']
+    
+    # Saldo total do grupo
     d = df_g[df_g['operacao'] == 'Débito']['valor'].sum()
     c = df_g[df_g['operacao'] == 'Crédito']['valor'].sum()
-    
-    return (d - c) if nature == 'D' else (c - d)
+    total = (d - c) if nature == 'D' else (c - d)
+    return total, accounts
 
 # --- Exibição das Abas ---
 
@@ -106,39 +109,38 @@ elif st.session_state.view_mode == "Balancete":
 elif st.session_state.view_mode == "Balanço":
     st.subheader("⚖️ Balanço Patrimonial")
     
-    # Agregação dos Razonetes (Grupos)
-    a_circ = get_group_balance('Ativo Circulante', 'D')
-    a_nao_circ = get_group_balance('Ativo Não Circulante', 'D')
+    # Cálculos por grupo
+    a_c, a_c_accts = get_group_details('Ativo Circulante', 'D')
+    a_nc, a_nc_accts = get_group_details('Ativo Não Circulante', 'D')
+    p_c, p_c_accts = get_group_details('Passivo Circulante', 'C')
+    p_nc, p_nc_accts = get_group_details('Passivo Não Circulante', 'C')
+    pl, pl_accts = get_group_details('Patrimônio Líquido', 'C')
     
-    p_circ = get_group_balance('Passivo Circulante', 'C')
-    p_nao_circ = get_group_balance('Passivo Não Circulante', 'C')
-    pl_base = get_group_balance('Patrimônio Líquido', 'C')
+    # Resultado
+    rec, _ = get_group_details('Receitas', 'C')
+    desp, _ = get_group_details('Despesas', 'D')
+    resultado = rec - desp
     
-    # Resultado (Receitas - Despesas)
-    receitas = get_group_balance('Receitas', 'C')
-    despesas = get_group_balance('Despesas', 'D')
-    resultado = receitas - despesas
+    tot_a = a_c + a_nc
+    tot_p_pl = p_c + p_nc + pl + resultado
     
-    tot_ativo = a_circ + a_nao_circ
-    tot_passivo_pl = p_circ + p_nao_circ + pl_base + resultado
-    
-    # Exibição
     col_a, col_p = st.columns(2)
     with col_a:
         st.markdown("### 🏢 ATIVO")
-        st.metric("Total Ativo", f"R$ {tot_ativo:,.2f}")
-        st.write(f"- Ativo Circulante: R$ {a_circ:,.2f}")
-        st.write(f"- Ativo Não Circulante: R$ {a_nao_circ:,.2f}")
-        
+        st.metric("Total Ativo", f"R$ {tot_a:,.2f}")
+        for g, accts in [('Ativo Circulante', a_c_accts), ('Ativo Não Circulante', a_nc_accts)]:
+            st.markdown(f"**{g}**")
+            for acc, v in accts.items(): st.write(f"- {acc}: R$ {v:,.2f}")
+            
     with col_p:
         st.markdown("### 🏦 PASSIVO + PL")
-        st.metric("Total Passivo + PL", f"R$ {tot_passivo_pl:,.2f}")
-        st.write(f"- Passivo Circulante: R$ {p_circ:,.2f}")
-        st.write(f"- Passivo Não Circulante: R$ {p_nao_circ:,.2f}")
-        st.write(f"- Patrimônio Líquido: R$ {pl_base:,.2f}")
-        st.write(f"- Resultado do Exercício: R$ {resultado:,.2f}")
+        st.metric("Total Origens", f"R$ {tot_p_pl:,.2f}")
+        for g, accts in [('Passivo Circulante', p_c_accts), ('Passivo Não Circulante', p_nc_accts), ('Patrimônio Líquido', pl_accts)]:
+            st.markdown(f"**{g}**")
+            for acc, v in accts.items(): st.write(f"- {acc}: R$ {v:,.2f}")
+        st.write(f"- **Resultado do Exercício:** R$ {resultado:,.2f}")
 
-    if abs(tot_ativo - tot_passivo_pl) < 0.01:
-        st.success("✅ Balanço Patrimonial Equilibrado!")
+    if abs(tot_a - tot_p_pl) < 0.01:
+        st.success("✅ Balanço Equilibrado!")
     else:
-        st.error(f"⚠️ Balanço Desequilibrado! Diferença: R$ {abs(tot_ativo - tot_passivo_pl):,.2f}")
+        st.error(f"⚠️ Desequilibrado! Diferença: R$ {abs(tot_a - tot_p_pl):,.2f}")
