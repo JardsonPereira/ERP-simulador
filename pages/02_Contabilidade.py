@@ -7,6 +7,7 @@ check_auth()
 supabase = get_supabase()
 user_id = st.session_state.user.id
 
+st.set_page_config(layout="wide") # Opcional: Garante melhor uso do espaço total da tela
 st.title("📈 Demonstrações Contábeis")
 
 # --- Inicialização de Estado ---
@@ -38,7 +39,13 @@ st.markdown("---")
 if st.session_state.view_mode == "Razonetes":
     st.subheader("📊 Razonetes (Livro Razão em T)")
     
-    # Configuração de largura das colunas
+    # CSS para limitar a largura dos razonetes (max-width: 800px)
+    st.markdown("""
+        <style>
+        .razonete-container { max-width: 800px; margin: auto; }
+        </style>
+    """, unsafe_allow_html=True)
+    
     col_config = {
         "data_lancamento": st.column_config.DateColumn("Data", width="small"),
         "valor": st.column_config.NumberColumn("Valor", width="small", format="R$ %.2f"),
@@ -56,16 +63,17 @@ if st.session_state.view_mode == "Razonetes":
             cred = df_conta[df_conta['operacao'] == 'Crédito']
             saldo = deb['valor'].sum() - cred['valor'].sum()
             
-            # Cabeçalho da Conta
+            # Container com largura limitada
+            st.markdown('<div class="razonete-container">', unsafe_allow_html=True)
+            
             st.markdown(f"""
-                <div style="background-color: black; color: white; padding: 3px; text-align: center; font-weight: bold; border-radius: 5px; margin-bottom: 2px;">
+                <div style="background-color: black; color: white; padding: 3px; text-align: center; font-weight: bold; border-radius: 5px; margin-bottom: 2px; font-size: 0.9em;">
                     {conta}
                 </div>
             """, unsafe_allow_html=True)
             
             c_t1, c_t2 = st.columns(2)
             
-            # Débito (Verde)
             with c_t1:
                 st.markdown("<h6 style='color: green; text-align: center; margin: 0;'>Débito</h6>", unsafe_allow_html=True)
                 st.dataframe(
@@ -77,7 +85,6 @@ if st.session_state.view_mode == "Razonetes":
                 )
                 st.markdown(f"<p style='color: green; font-weight: bold; margin: 0; font-size: 0.8em;'>Total: R$ {deb['valor'].sum():,.2f}</p>", unsafe_allow_html=True)
             
-            # Crédito (Vermelho)
             with c_t2:
                 st.markdown("<h6 style='color: red; text-align: center; margin: 0;'>Crédito</h6>", unsafe_allow_html=True)
                 st.dataframe(
@@ -89,12 +96,13 @@ if st.session_state.view_mode == "Razonetes":
                 )
                 st.markdown(f"<p style='color: red; font-weight: bold; margin: 0; font-size: 0.8em;'>Total: R$ {cred['valor'].sum():,.2f}</p>", unsafe_allow_html=True)
             
-            # Saldo Final
             st.markdown(f"""
                 <div style="background-color: black; color: white; padding: 3px; text-align: center; border-radius: 5px; margin-top: 5px; margin-bottom: 25px; font-weight: bold;">
                     SALDO FINAL: R$ {saldo:,.2f}
                 </div>
             """, unsafe_allow_html=True)
+            
+            st.markdown('</div>', unsafe_allow_html=True) # Fim do container limitado
 
 elif st.session_state.view_mode == "Balancete":
     st.subheader("📑 Balancete de Verificação")
