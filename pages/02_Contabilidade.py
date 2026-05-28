@@ -11,7 +11,7 @@ user_id = st.session_state.user.id
 
 st.title("📈 Demonstrações Contábeis")
 
-# --- 1. CARREGAMENTO BLINDADO ---
+# --- 1. CARREGAMENTO E MERGE CORRETO ---
 @st.cache_data(ttl=60)
 def carregar_dados():
     res_lanc = supabase.table("lancamentos").select("*").eq("user_id", user_id).execute()
@@ -22,13 +22,11 @@ def carregar_dados():
     
     if df_lanc.empty or df_contas.empty: return None, None
     
-    # Merge forçado
+    # A MÁGICA: O Grupo vem da tabela de Contas e é unido aos Lançamentos pelo conta_id
     df = pd.merge(df_lanc, df_contas, left_on='conta_id', right_on='id', how='left')
     
-    # Garantia de colunas
-    if 'grupo' not in df.columns: df['grupo'] = 'SEM GRUPO'
-    else: df['grupo'] = df['grupo'].fillna('SEM GRUPO')
-        
+    # Tratamento de segurança
+    df['grupo'] = df['grupo'].fillna('SEM GRUPO')
     df['nome_conta'] = df['nome_conta'].fillna('Conta Desconhecida')
     df['data_lancamento'] = pd.to_datetime(df['data_lancamento']).dt.date
     return df, df_contas
@@ -39,7 +37,7 @@ if df is None:
     st.warning("Dados não carregados.")
     st.stop()
 
-# --- 2. CSS ESTILIZADO ---
+# --- 2. CSS RESTAURADO ---
 st.markdown("""
     <style>
     .t-wrapper { border: 1px solid #ccc; padding: 10px; margin-bottom: 15px; border-radius: 8px; background: #ffffff; }
@@ -67,20 +65,19 @@ if c5.button("⚖️ Balanço"): st.session_state.view_mode = "Balanço"
 
 st.markdown("---")
 
-# --- 5. LÓGICA DE EXIBIÇÃO ---
+# --- 5. EXIBIÇÃO (RESTAURADA) ---
 if st.session_state.view_mode == "Auditoria":
     st.subheader("🔍 Auditoria de Divergências")
     sem_grupo = df_filtered[df_filtered['grupo'] == 'SEM GRUPO']
     if not sem_grupo.empty:
-        st.error(f"⚠️ {len(sem_grupo)} lançamentos no período não estão atribuídos a um grupo!")
+        st.error(f"⚠️ {len(sem_grupo)} lançamentos sem grupo no período! A divergência de R$ 500 está aqui:")
         st.dataframe(sem_grupo[['nome_conta', 'valor', 'justificativa', 'data_lancamento']])
     else:
-        st.success("✅ Tudo ok! Todos os lançamentos possuem grupo.")
+        st.success("✅ Tudo ok! Todos os lançamentos no período possuem grupo.")
 
 elif st.session_state.view_mode == "Razonetes":
     st.subheader("📊 Razonetes")
     config = {"data_lancamento": st.column_config.DateColumn("Data"), "valor": st.column_config.NumberColumn("Valor", format="R$ %.2f")}
-    
     for g in df_filtered['grupo'].unique():
         st.markdown(f"#### 📂 Grupo: {g}")
         contas = df_filtered[df_filtered['grupo'] == g]['nome_conta'].unique()
@@ -89,7 +86,6 @@ elif st.session_state.view_mode == "Razonetes":
             c_df = df_filtered[(df_filtered['grupo'] == g) & (df_filtered['nome_conta'] == conta)]
             deb = c_df[c_df['operacao'] == 'Débito'].copy()
             cred = c_df[c_df['operacao'] == 'Crédito'].copy()
-            
             with cols[i % 2]:
                 st.markdown('<div class="t-wrapper">', unsafe_allow_html=True)
                 st.markdown(f'<div class="t-header">{conta.upper()}</div>', unsafe_allow_html=True)
@@ -108,7 +104,7 @@ elif st.session_state.view_mode == "Balancete":
     st.subheader("📑 Balancete de Verificação")
     bal = df_filtered.groupby(['nome_conta', 'operacao'])['valor'].sum().unstack(fill_value=0)
     bal['Saldo'] = bal.get('Débito', 0) - bal.get('Crédito', 0)
-    st.metric("Diferença Total", f"R$ {bal['Débito'].sum() - bal['Crédito'].sum():,.2f}")
+    st.metric("Diferença Total", f"R$ {bal.get('Débito', 0).sum() - bal.get('Crédito', 0).sum():,.2f}")
     st.dataframe(bal, use_container_width=True)
 
 elif st.session_state.view_mode == "Balanço":
@@ -118,7 +114,7 @@ elif st.session_state.view_mode == "Balanço":
         d = g_df[g_df['operacao'] == 'Débito']['valor'].sum()
         c = g_df[g_df['operacao'] == 'Crédito']['valor'].sum()
         return (d-c) if n=='D' else (c-d)
-
+    
     ac, anc = get_saldo('Ativo Circulante', 'D'), get_saldo('Ativo Não Circulante', 'D')
     pc, pnc = get_saldo('Passivo Circulante', 'C'), get_saldo('Passivo Não Circulante', 'C')
     pl, res = get_saldo('Patrimônio Líquido', 'C'), (get_saldo('Receitas', 'C') - get_saldo('Despesas', 'D'))
