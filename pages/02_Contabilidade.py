@@ -1,88 +1,219 @@
 import streamlit as st
+
 import pandas as pd
+
+import sys, os
+
 from datetime import date
+
 from utils import get_supabase, check_auth, show_auth_sidebar
 
-# --- Configuração ---
+
+
+# Configuração de caminhos
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+
+
+# 1. Proteção de Autenticação
+
 check_auth()
+
 if "user" not in st.session_state or st.session_state.user is None:
-    st.warning("Por favor, faça login.")
+
+    st.warning("Por favor, faça login para acessar esta página.")
+
     st.stop()
 
+
+
 supabase = get_supabase()
+
+show_auth_sidebar(supabase)
+
 user_id = st.session_state.user.id
 
-st.set_page_config(page_title="Sistema Contábil", layout="wide")
-st.title("⚖️ Sistema Contábil Patrimonial")
 
-# --- Dados ---
-res_contas = supabase.table("contas").select("id, nome_conta, grupo").eq("user_id", user_id).execute()
-contas_df = pd.DataFrame(res_contas.data)
-lista_contas = ["-- Selecionar --"] + (contas_df['nome_conta'].tolist() if not contas_df.empty else [])
 
-# --- 1. Lançamentos (Partidas Dobradas) ---
-with st.expander("📝 Criar Novo Lançamento (Partida Dobrada)", expanded=True):
-    with st.form("lanc_dobrado"):
-        c1, c2, c3 = st.columns(3)
-        with c1: conta_deb = st.selectbox("Conta Débito (Origem/Aplicação)", lista_contas)
-        with c2: conta_cred = st.selectbox("Conta Crédito (Destino/Origem)", lista_contas)
-        with c3: valor = st.number_input("Valor (R$)", min_value=0.01, format="%.2f")
-        
-        hist = st.text_input("Histórico")
+st.title("💰 Lançamentos")
+
+
+
+# Carregar Contas
+
+res_contas = supabase.table("contas").select("id, nome_conta").eq("user_id", user_id).execute()
+
+dicionario_contas = {c['nome_conta']: c['id'] for c in res_contas.data}
+
+lista_contas = ["-- Selecionar Conta --"] + list(dicionario_contas.keys())
+
+
+
+opcoes_grupo = [
+
+    "Ativo Circulante", "Ativo Não Circulante", "Passivo Circulante", 
+
+    "Passivo Não Circulante", "Patrimônio Líquido", "Receitas", 
+
+    "Despesas", "Encargos Financeiros", "Transação Interna"
+
+]
+
+
+
+# --- Formulário de Cadastro ---
+
+with st.form("lancamento_form", clear_on_submit=True):
+
+    st.subheader("📝 Criar Novo Lançamento")
+
+    c1, c2 = st.columns(2)
+
+    with c1: 
+
+        conta_sel = st.selectbox("Conta", lista_contas)
+
+    with c2: 
+
+        nova_conta = st.text_input("OU Criar Nova Conta")
+
+    
+
+    justificativa = st.text_input("Justificativa")
+
+    
+
+    c3, c4 = st.columns(2)
+
+    with c3:
+
         data = st.date_input("Data", date.today())
-        
-        if st.form_submit_button("Lançar"):
-            if conta_deb == "-- Selecionar --" or conta_cred == "-- Selecionar --":
-                st.error("Selecione ambas as contas!")
-            else:
-                id_deb = contas_df[contas_df['nome_conta'] == conta_deb].iloc[0]['id']
-                id_cred = contas_df[contas_df['nome_conta'] == conta_cred].iloc[0]['id']
-                
-                # Inserir as duas pernas (Debito + / Credito -)
-                supabase.table("lancamentos").insert([
-                    {"user_id": user_id, "conta_id": id_deb, "valor": valor, "operacao": "Débito", "data_lancamento": str(data), "justificativa": hist},
-                    {"user_id": user_id, "conta_id": id_cred, "valor": -valor, "operacao": "Crédito", "data_lancamento": str(data), "justificativa": hist}
-                ]).execute()
-                st.rerun()
 
-# --- 2. Processamento Contábil ---
-res_lanc = supabase.table("lancamentos").select("*").eq("user_id", user_id).execute()
+        valor = st.number_input("Valor (R$)", min_value=0.0, format="%.2f")
+
+    with c4:
+
+        operacao = st.selectbox("Operação", ["Débito", "Crédito"])
+
+        grupo = st.selectbox("Grupo", opcoes_grupo)
+
+        status = st.selectbox("Status", ["Entrada", "Saída", "Pendente", "Investimento", "Transação Interna"])
+
+        
+
+    if st.form_submit_button("Gravar"):
+
+        conta_id = dicionario_contas.get(conta_sel)
+
+        if not conta_id and nova_conta:
+
+            res_nova = supabase.table("contas").insert({"user_id": user_id, "nome_conta": nova_conta, "grupo": grupo}).execute()
+
+            conta_id = res_nova.data[0]['id']
+
+        
+
+        if conta_id:
+
+            supabase.table("lancamentos").insert({
+
+                "user_id": user_id, "conta_id": conta_id, "operacao": operacao, 
+
+                "valor": float(abs(valor)), "data_lancamento": str(data), 
+
+                "status_financeiro": status, "grupo": grupo, "justificativa": justificativa
+
+            }).execute()
+
+            st.rerun()
+
+
+
+# --- Histórico e Edição ---
+
+st.markdown("---")
+
+st.subheader("📊 Histórico")
+
+
+
+res_lanc = supabase.table("lancamentos").select("*").eq("user_id", user_id).order("data_lancamento", desc=True).execute()
+
+
+
 if res_lanc.data:
+
     df = pd.DataFrame(res_lanc.data)
-    df["Conta"] = df["conta_id"].map(contas_df.set_index('id')['nome_conta'])
-    df["Grupo"] = df["conta_id"].map(contas_df.set_index('id')['grupo'])
 
-    # --- Razonetes ---
-    st.subheader("📖 Razonetes (Saldos por Conta)")
-    razonetes = df.groupby(["Conta", "Grupo"])["valor"].sum().reset_index()
-    st.dataframe(razonetes, use_container_width=True)
+    id_to_name = {v: k for k, v in dicionario_contas.items()}
 
-    # --- Balancete ---
-    st.subheader("⚖️ Balancete de Verificação")
-    total_balancete = razonetes["valor"].sum()
-    st.metric("Soma Total das Contas", f"R$ {total_balancete:,.2f}")
-    if abs(total_balancete) < 0.01: st.success("Balanço Equilibrado!")
-    else: st.error("Diferença encontrada no Balanço!")
+    df["Conta"] = df["conta_id"].map(id_to_name)
 
-    # --- Balanço Patrimonial ---
-    st.subheader("📑 Balanço Patrimonial")
-    col_a, col_p = st.columns(2)
     
-    # Filtro Ativo vs Passivo/PL
-    ativos = razonetes[razonetes["Grupo"].str.contains("Ativo", na=False)]
-    passivos = razonetes[razonetes["Grupo"].str.contains("Passivo|Patrimônio", na=False)]
-    
-    with col_a:
-        st.write("### ATIVO (Aplicação)")
-        st.dataframe(ativos[["Conta", "valor"]], use_container_width=True)
-        st.write(f"**TOTAL ATIVO: R$ {ativos['valor'].sum():,.2f}**")
-        
-    with col_p:
-        st.write("### PASSIVO + PL (Origem)")
-        # Inverter sinal para exibição contábil positiva
-        passivos_disp = passivos.copy()
-        passivos_disp["valor"] = passivos_disp["valor"].abs()
-        st.dataframe(passivos_disp[["Conta", "valor"]], use_container_width=True)
-        st.write(f"**TOTAL PASSIVO + PL: R$ {passivos_disp['valor'].sum():,.2f}**")
-else:
-    st.info("Nenhum lançamento encontrado.")
+
+    # Preparação dos dados
+
+    df_exibicao = df[["id", "data_lancamento", "Conta", "valor", "justificativa", "operacao", "status_financeiro", "grupo"]].copy()
+
+    df_exibicao["data_lancamento"] = pd.to_datetime(df_exibicao["data_lancamento"])
+
+    df_exibicao["valor"] = df_exibicao["valor"].fillna(0.0)
+
+
+
+    # Editor de dados
+
+    edited_df = st.data_editor(
+
+        df_exibicao, 
+
+        use_container_width=True,
+
+        hide_index=True,
+
+        column_config={
+
+            "id": st.column_config.NumberColumn("ID", disabled=True),
+
+            "valor": st.column_config.NumberColumn("Valor (R$)", format="%.2f"),
+
+            "data_lancamento": st.column_config.DateColumn("Data"),
+
+            "Conta": st.column_config.TextColumn("Conta", disabled=True),
+
+            "operacao": st.column_config.SelectboxColumn("Operação", options=["Débito", "Crédito"]),
+
+            "status_financeiro": st.column_config.SelectboxColumn("Status", options=["Entrada", "Saída", "Pendente", "Investimento", "Transação Interna"]),
+
+            "grupo": st.column_config.SelectboxColumn("Grupo", options=opcoes_grupo)
+
+        }
+
+    )
+
+
+
+    if st.button("💾 Salvar Alterações"):
+
+        for i, row in edited_df.iterrows():
+
+            if not row.equals(df_exibicao.iloc[i]):
+
+                supabase.table("lancamentos").update({
+
+                    "valor": float(row["valor"]),
+
+                    "justificativa": row["justificativa"],
+
+                    "status_financeiro": row["status_financeiro"],
+
+                    "operacao": row["operacao"],
+
+                    "grupo": row["grupo"]
+
+                }).eq("id", row["id"]).execute()
+
+        st.success("Alterações salvas com sucesso!")
+
+        st.rerun() 
