@@ -108,3 +108,21 @@ if res_lanc.data:
                 }).eq("id", row["id"]).execute()
         st.success("Alterações salvas com sucesso!")
         st.rerun()
+
+# --- Resetar Histórico ---
+st.markdown("---")
+with st.expander("⚠️ Área de Perigo: Gerenciamento de Dados"):
+    st.warning("Atenção: Esta ação apagará **todos** os lançamentos cadastrados. Ela é irreversível.")
+    
+    # Checkbox para garantir a intenção do usuário
+    confirm = st.checkbox("Estou ciente e desejo apagar todos os lançamentos")
+    
+    if confirm:
+        if st.button("Confirmar Exclusão de Todos os Lançamentos", type="primary"):
+            try:
+                # Executa a deleção filtrando pelo ID do usuário logado
+                supabase.table("lancamentos").delete().eq("user_id", user_id).execute()
+                st.success("Todos os lançamentos foram apagados com sucesso!")
+                st.rerun() # Recarrega a página para atualizar a tabela
+            except Exception as e:
+                st.error(f"Erro ao tentar resetar os dados: {e}")
