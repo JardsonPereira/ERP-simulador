@@ -11,34 +11,41 @@ user_id = st.session_state.user.id
 
 st.title("📈 Demonstrações Contábeis")
 
-# --- 1. CARREGAMENTO E DIAGNÓSTICO ---
-@st.cache_data(ttl=60)
-def carregar_dados():
+# --- 1. CARREGAMENTO BLINDADO ---
+@st.cache_data(ttl=10) # Cache curto para forçar atualização
+def carregar_dados_seguro():
     res_lanc = supabase.table("lancamentos").select("*").eq("user_id", user_id).execute()
     res_contas = supabase.table("contas").select("*").eq("user_id", user_id).execute()
     
     df_lanc = pd.DataFrame(res_lanc.data) if res_lanc.data else pd.DataFrame()
     df_contas = pd.DataFrame(res_contas.data) if res_contas.data else pd.DataFrame()
     
-    return df_lanc, df_contas
+    if df_lanc.empty or df_contas.empty:
+        return None
+    
+    # Padronização de tipos para o Merge funcionar
+    df_lanc['conta_id'] = df_lanc['conta_id'].astype(int)
+    df_contas['id'] = df_contas['id'].astype(int)
+    
+    # Merge forçado
+    df = pd.merge(df_lanc, df_contas, left_on='conta_id', right_on='id', how='left')
+    
+    # Garantia de colunas obrigatórias
+    if 'grupo' not in df.columns:
+        df['grupo'] = 'SEM GRUPO'
+    else:
+        df['grupo'] = df['grupo'].fillna('SEM GRUPO')
+        
+    df['nome_conta'] = df['nome_conta'].fillna('Conta Desconhecida')
+    df['data_lancamento'] = pd.to_datetime(df['data_lancamento']).dt.date
+    
+    return df
 
-df_lanc, df_contas = carregar_dados()
+df = carregar_dados_seguro()
 
-if df_lanc.empty or df_contas.empty:
-    st.warning("Dados não carregados ou tabela vazia.")
+if df is None:
+    st.warning("Dados não carregados. Verifique sua conexão ou se existem lançamentos.")
     st.stop()
-
-# Diagnóstico de Colunas
-df_contas.columns = df_contas.columns.str.strip() # Remove espaços extras
-if 'grupo' not in df_contas.columns:
-    st.error(f"ERRO: A coluna 'grupo' não foi encontrada. Colunas disponíveis: {df_contas.columns.tolist()}")
-    st.stop()
-
-# Merge Seguro
-df = pd.merge(df_lanc, df_contas, left_on='conta_id', right_on='id', how='left')
-df['grupo'] = df['grupo'].fillna('SEM GRUPO')
-df['nome_conta'] = df['nome_conta'].fillna('Conta Desconhecida')
-df['data_lancamento'] = pd.to_datetime(df['data_lancamento']).dt.date
 
 # --- 2. FILTROS ---
 st.sidebar.header("🗓️ Filtros")
@@ -60,31 +67,31 @@ if c5.button("⚖️ Balanço"): st.session_state.view_mode = "Balanço"
 st.markdown("---")
 
 # --- 4. EXIBIÇÃO ---
-
 if st.session_state.view_mode == "Auditoria":
-    st.subheader("🔍 Auditoria de Divergências")
+    st.subheader("🔍 Auditoria de Dados")
+    # Debug visual rápido
+    with st.expander("Ver colunas carregadas (Diagnóstico)"):
+        st.write("Colunas no DataFrame:", df.columns.tolist())
+    
     sem_grupo = df_filtered[df_filtered['grupo'] == 'SEM GRUPO']
     if not sem_grupo.empty:
         st.error(f"⚠️ {len(sem_grupo)} lançamentos no período não estão atribuídos a um grupo!")
         st.dataframe(sem_grupo[['nome_conta', 'valor', 'justificativa', 'data_lancamento']])
     else:
-        st.success("✅ Tudo ok! Todos os lançamentos no período têm grupo.")
+        st.success("✅ Tudo ok! Todos os lançamentos possuem grupo definido.")
 
 elif st.session_state.view_mode == "Plano":
-    st.dataframe(df_contas[['nome_conta', 'grupo']])
+    st.dataframe(df[['nome_conta', 'grupo']].drop_duplicates())
 
 elif st.session_state.view_mode == "Razonetes":
     st.subheader("📊 Razonetes")
     for g in df_filtered['grupo'].unique():
-        st.markdown(f"### {g}")
-        contas = df_filtered[df_filtered['grupo'] == g]['nome_conta'].unique()
-        cols = st.columns(3)
-        for i, conta in enumerate(contas):
+        st.markdown(f"### Grupo: {g}")
+        for conta in df_filtered[df_filtered['grupo'] == g]['nome_conta'].unique():
             c_df = df_filtered[(df_filtered['grupo'] == g) & (df_filtered['nome_conta'] == conta)]
             deb = c_df[c_df['operacao'] == 'Débito']['valor'].sum()
             cred = c_df[c_df['operacao'] == 'Crédito']['valor'].sum()
-            with cols[i % 3]:
-                st.metric(conta, f"R$ {deb - cred:,.2f}")
+            st.write(f"**{conta}**: D: R$ {deb:,.2f} | C: R$ {cred:,.2f} | Saldo: R$ {deb-cred:,.2f}")
 
 elif st.session_state.view_mode == "Balancete":
     st.subheader("📑 Balancete")
@@ -100,14 +107,16 @@ elif st.session_state.view_mode == "Balanço":
         c = g_df[g_df['operacao'] == 'Crédito']['valor'].sum()
         return (d-c) if n=='D' else (c-d)
 
-    ac, anc = get_saldo('Ativo Circulante', 'D'), get_saldo('Ativo Não Circulante', 'D')
-    pc, pnc = get_saldo('Passivo Circulante', 'C'), get_saldo('Passivo Não Circulante', 'C')
-    pl, res = get_saldo('Patrimônio Líquido', 'C'), (get_saldo('Receitas', 'C') - get_saldo('Despesas', 'D'))
-    sg = get_saldo('SEM GRUPO', 'D') # Valor da divergência
+    ac = get_saldo('Ativo Circulante', 'D')
+    anc = get_saldo('Ativo Não Circulante', 'D')
+    pc = get_saldo('Passivo Circulante', 'C')
+    pnc = get_saldo('Passivo Não Circulante', 'C')
+    pl = get_saldo('Patrimônio Líquido', 'C')
+    res = get_saldo('Receitas', 'C') - get_saldo('Despesas', 'D')
     
     col1, col2 = st.columns(2)
-    col1.metric("Total ATIVO", f"R$ {ac + anc + sg:,.2f}")
+    col1.metric("Total ATIVO", f"R$ {ac + anc:,.2f}")
     col2.metric("Total PASSIVO + PL", f"R$ {pc + pnc + pl + res:,.2f}")
     
-    if abs(sg) > 0.01:
-        st.error(f"⚠️ Existe um valor de R$ {sg:,.2f} sem grupo. Verifique a aba Auditoria.")
+    if abs((ac + anc) - (pc + pnc + pl + res)) > 0.01:
+        st.error(f"⚠️ Divergência detectada! Verifique a aba Auditoria.")
