@@ -3,7 +3,7 @@ import pandas as pd
 from utils import get_supabase, check_auth
 
 # --- Configuração ---
-st.set_page_config(layout="wide", page_title="ContabilApp - Contabilidade")
+st.set_page_config(layout="wide", page_title="Contabilidade Compacta")
 check_auth()
 supabase = get_supabase()
 user_id = st.session_state.user.id
@@ -43,7 +43,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- Configuração Global de Colunas ---
+# Configuração de Colunas para os DataFrames
 col_config_geral = {
     "valor": st.column_config.NumberColumn("Valor", width="small", format="R$ %.2f"),
     "data_lancamento": st.column_config.DateColumn("Data", width="small"),
@@ -82,13 +82,15 @@ if st.session_state.view_mode == "Razonetes":
 
 elif st.session_state.view_mode == "Balancete":
     st.subheader("📑 Balancete de Verificação")
+    # Tabela dinâmica
     bal = df.groupby(['Conta', 'operacao'])['valor'].sum().unstack(fill_value=0)
-    if 'Débito' not in bal.columns: bal['Débito'] = 0
-    if 'Crédito' not in bal.columns: bal['Crédito'] = 0
+    if 'Débito' not in bal.columns: bal['Débito'] = 0.0
+    if 'Crédito' not in bal.columns: bal['Crédito'] = 0.0
     bal['Saldo'] = bal['Débito'] - bal['Crédito']
     
     t_deb = bal['Débito'].sum()
     t_cred = bal['Crédito'].sum()
+    
     c1, c2, c3 = st.columns(3)
     c1.metric("Total Débitos", f"R$ {t_deb:,.2f}")
     c2.metric("Total Créditos", f"R$ {t_cred:,.2f}")
@@ -102,15 +104,32 @@ elif st.session_state.view_mode == "Balancete":
 
 elif st.session_state.view_mode == "Balanço":
     st.subheader("⚖️ Balanço Patrimonial")
-    ativo = df[df['grupo'].str.contains('Ativo', na=False)]['valor'].sum()
-    passivo = df[df['grupo'].str.contains('Passivo', na=False)]['valor'].sum()
+    st.markdown("### Estrutura: Ativo = Passivo + Patrimônio Líquido")
+    
+    # Cálculos
+    a_circ = df[df['grupo'] == 'Ativo Circulante']['valor'].sum()
+    a_nao_circ = df[df['grupo'] == 'Ativo Não Circulante']['valor'].sum()
+    total_ativo = a_circ + a_nao_circ
+    
+    p_circ = df[df['grupo'] == 'Passivo Circulante']['valor'].sum()
+    p_nao_circ = df[df['grupo'] == 'Passivo Não Circulante']['valor'].sum()
     pl = df[df['grupo'] == 'Patrimônio Líquido']['valor'].sum()
-    
-    m1, m2, m3 = st.columns(3)
-    m1.metric("Total Ativo", f"R$ {ativo:,.2f}")
-    m2.metric("Total Passivo + PL", f"R$ {passivo + pl:,.2f}")
-    
-    if abs(ativo - (passivo + pl)) < 0.01:
-        st.success(f"Equilibrado! (Diferença: R$ {abs(ativo - (passivo + pl)):,.2f})")
+    total_origens = p_circ + p_nao_circ + pl
+
+    col_a, col_p = st.columns(2)
+    with col_a:
+        st.markdown("### 🏢 ATIVO")
+        st.metric("Total Ativo", f"R$ {total_ativo:,.2f}")
+        st.write(f"- Circulante: R$ {a_circ:,.2f}")
+        st.write(f"- Não Circulante: R$ {a_nao_circ:,.2f}")
+    with col_p:
+        st.markdown("### 🏦 PASSIVO + PL")
+        st.metric("Total Origens", f"R$ {total_origens:,.2f}")
+        st.write(f"- Passivo Circulante: R$ {p_circ:,.2f}")
+        st.write(f"- Passivo Não Circulante: R$ {p_nao_circ:,.2f}")
+        st.write(f"- Patrimônio Líquido: R$ {pl:,.2f}")
+
+    if abs(total_ativo - total_origens) < 0.01:
+        st.success(f"✅ Balanço Equilibrado (Diferença: R$ 0.00)")
     else:
-        st.error(f"Desequilibrado! Diferença: R$ {abs(ativo - (passivo + pl)):,.2f}")
+        st.error(f"⚠️ Desequilibrado! Diferença: R$ {abs(total_ativo - total_origens):,.2f}")
