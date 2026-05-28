@@ -40,7 +40,8 @@ st.markdown("""
     <style>
     .t-wrapper { border: 1px solid #ccc; padding: 5px; margin-bottom: 10px; border-radius: 4px; background: #fafafa; }
     .t-header { background: #333; color: white; text-align: center; font-weight: bold; padding: 2px; border-radius: 2px; }
-    .total-text { font-size: 0.8em; font-weight: bold; text-align: right; margin: 0; }
+    .total-deb { color: green; font-size: 0.9em; font-weight: bold; text-align: right; }
+    .total-cred { color: red; font-size: 0.9em; font-weight: bold; text-align: right; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -54,7 +55,7 @@ def get_group_details(group_name, nature):
     total = (d - c) if nature == 'D' else (c - d)
     return total, accounts
 
-# --- Exibição das Abas ---
+# --- Abas ---
 
 if st.session_state.view_mode == "Plano de Contas":
     st.subheader("📂 Estrutura do Plano de Contas")
@@ -66,7 +67,7 @@ if st.session_state.view_mode == "Plano de Contas":
         st.write("---")
 
 elif st.session_state.view_mode == "Razonetes":
-    st.subheader("📊 Razonetes: Demonstração Detalhada")
+    st.subheader("📊 Razonetes")
     col_config = {"data_lancamento": st.column_config.DateColumn("Data", width="small"),
                   "valor": st.column_config.NumberColumn("Valor", width="small", format="R$ %.2f"),
                   "justificativa": st.column_config.TextColumn("Justif.", width="medium")}
@@ -77,18 +78,28 @@ elif st.session_state.view_mode == "Razonetes":
         cols = st.columns(2)
         for i, conta in enumerate(contas):
             df_c = df[(df['grupo'] == grupo) & (df['Conta'] == conta)]
-            deb = df_c[df_c['operacao'] == 'Débito']
-            cred = df_c[df_c['operacao'] == 'Crédito']
+            deb = df_c[df_c['operacao'] == 'Débito'].copy()
+            cred = df_c[df_c['operacao'] == 'Crédito'].copy()
+            
+            # Garantir valores positivos para exibição visual
+            deb['valor'] = deb['valor'].abs()
+            cred['valor'] = cred['valor'].abs()
+            
             saldo = deb['valor'].sum() - cred['valor'].sum()
+            
             with cols[i % 2]:
                 st.markdown('<div class="t-wrapper">', unsafe_allow_html=True)
                 st.markdown(f'<div class="t-header">{conta.upper()}</div>', unsafe_allow_html=True)
                 c_d, c_c = st.columns(2)
                 with c_d:
+                    st.markdown("<p style='text-align:center; color:green; font-weight:bold;'>Débito</p>", unsafe_allow_html=True)
                     st.dataframe(deb[['data_lancamento', 'valor', 'justificativa']], height=70, hide_index=True, column_config=col_config, use_container_width=True)
+                    st.markdown(f"<p class='total-deb'>Total D: R$ {deb['valor'].sum():,.2f}</p>", unsafe_allow_html=True)
                 with c_c:
+                    st.markdown("<p style='text-align:center; color:red; font-weight:bold;'>Crédito</p>", unsafe_allow_html=True)
                     st.dataframe(cred[['data_lancamento', 'valor', 'justificativa']], height=70, hide_index=True, column_config=col_config, use_container_width=True)
-                st.markdown(f"<div style='text-align:center; font-weight:bold;'>SALDO: R$ {saldo:,.2f}</div>", unsafe_allow_html=True)
+                    st.markdown(f"<p class='total-cred'>Total C: R$ {cred['valor'].sum():,.2f}</p>", unsafe_allow_html=True)
+                st.markdown(f"<div style='border-top:1px solid #ccc; text-align:center; font-weight:bold;'>SALDO: R$ {saldo:,.2f}</div>", unsafe_allow_html=True)
                 st.markdown('</div>', unsafe_allow_html=True)
 
 elif st.session_state.view_mode == "Balancete":
@@ -114,14 +125,12 @@ elif st.session_state.view_mode == "Balancete":
 elif st.session_state.view_mode == "Balanço":
     st.subheader("⚖️ Balanço Patrimonial")
     
-    # Cálculos por grupo
     a_c, a_c_accts = get_group_details('Ativo Circulante', 'D')
     a_nc, a_nc_accts = get_group_details('Ativo Não Circulante', 'D')
     p_c, p_c_accts = get_group_details('Passivo Circulante', 'C')
     p_nc, p_nc_accts = get_group_details('Passivo Não Circulante', 'C')
     pl, pl_accts = get_group_details('Patrimônio Líquido', 'C')
     
-    # Resultado
     rec, _ = get_group_details('Receitas', 'C')
     desp, _ = get_group_details('Despesas', 'D')
     resultado = rec - desp
