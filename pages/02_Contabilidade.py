@@ -1,5 +1,36 @@
 import streamlit as st
 import pandas as pd
+from utils import get_supabase, check_auth
+
+# --- Configuração ---
+st.set_page_config(layout="wide", page_title="ContabilApp - Debug")
+check_auth()
+supabase = get_supabase()
+user_id = st.session_state.user.id
+
+st.title("🛠️ Diagnóstico de Dados")
+
+# --- Dados ---
+res_lanc = supabase.table("lancamentos").select("*").eq("user_id", user_id).execute()
+res_contas = supabase.table("contas").select("id, nome_conta, grupo").eq("user_id", user_id).execute()
+
+# --- DIAGNÓSTICO (Copie e cole isso para descobrir o problema) ---
+st.subheader("O que o banco de dados está enviando:")
+if res_contas.data:
+    st.write("Primeiro item da resposta do banco:", res_contas.data[0])
+    st.write("Chaves disponíveis no JSON:", res_contas.data[0].keys())
+else:
+    st.error("A consulta retornou vazia!")
+
+df_contas = pd.DataFrame(res_contas.data) if res_contas.data else pd.DataFrame()
+
+if 'grupo' not in df_contas.columns:
+    st.error("ERRO: A coluna 'grupo' não está no DataFrame do Pandas.")
+    st.stop()
+else:
+    st.success("Coluna 'grupo' encontrada!")
+import streamlit as st
+import pandas as pd
 from datetime import date
 from utils import get_supabase, check_auth
 
