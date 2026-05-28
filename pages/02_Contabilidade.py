@@ -14,14 +14,12 @@ if 'view_mode' not in st.session_state:
     st.session_state.view_mode = "Razonetes"
 
 # --- Dados ---
-# Buscar Lançamentos
 res_lanc = supabase.table("lancamentos").select("*").eq("user_id", user_id).execute()
-# Buscar Contas para o mapeamento Nome <-> ID
 res_contas = supabase.table("contas").select("id, nome_conta").eq("user_id", user_id).execute()
 id_to_name = {c['id']: c['nome_conta'] for c in res_contas.data}
 
 if not res_lanc.data:
-    st.warning("Nenhum lançamento encontrado.")
+    st.warning("Nenhum lançamento encontrado para gerar as demonstrações.")
     st.stop()
 
 df = pd.DataFrame(res_lanc.data)
@@ -40,7 +38,6 @@ st.markdown("---")
 if st.session_state.view_mode == "Razonetes":
     st.subheader("📊 Razonetes (Livro Razão em T)")
     
-    # 
     grupos = df['grupo'].unique()
     for grupo in grupos:
         st.markdown(f"### 📂 Grupo: {grupo}")
@@ -50,17 +47,36 @@ if st.session_state.view_mode == "Razonetes":
             df_conta = df_grupo[df_grupo['Conta'] == conta]
             deb = df_conta[df_conta['operacao'] == 'Débito']
             cred = df_conta[df_conta['operacao'] == 'Crédito']
+            saldo = deb['valor'].sum() - cred['valor'].sum()
             
-            with st.container(border=True):
-                st.write(f"**Conta: {conta}**")
-                c_t1, c_t2 = st.columns(2)
-                c_t1.markdown("<h5 style='text-align: center;'>Débito</h5>", unsafe_allow_html=True)
-                c_t1.table(deb[['data_lancamento', 'valor', 'justificativa']])
-                c_t2.markdown("<h5 style='text-align: center;'>Crédito</h5>", unsafe_allow_html=True)
-                c_t2.table(cred[['data_lancamento', 'valor', 'justificativa']])
-                
-                saldo = deb['valor'].sum() - cred['valor'].sum()
-                st.info(f"**Saldo Final: R$ {saldo:,.2f}**")
+            # Cabeçalho da Conta (Preto/Branco)
+            st.markdown(f"""
+                <div style="background-color: black; color: white; padding: 10px; text-align: center; font-weight: bold; border-radius: 5px;">
+                    {conta}
+                </div>
+            """, unsafe_allow_html=True)
+            
+            c_t1, c_t2 = st.columns(2)
+            
+            # Débito (Verde)
+            with c_t1:
+                st.markdown("<h4 style='color: green; text-align: center;'>Débito</h4>", unsafe_allow_html=True)
+                st.table(deb[['data_lancamento', 'valor', 'justificativa']])
+                st.markdown(f"<p style='color: green; font-weight: bold;'>Total Débito: R$ {deb['valor'].sum():,.2f}</p>", unsafe_allow_html=True)
+            
+            # Crédito (Vermelho)
+            with c_t2:
+                st.markdown("<h4 style='color: red; text-align: center;'>Crédito</h4>", unsafe_allow_html=True)
+                st.table(cred[['data_lancamento', 'valor', 'justificativa']])
+                st.markdown(f"<p style='color: red; font-weight: bold;'>Total Crédito: R$ {cred['valor'].sum():,.2f}</p>", unsafe_allow_html=True)
+            
+            # Saldo Final (Preto/Branco)
+            st.markdown(f"""
+                <div style="background-color: black; color: white; padding: 10px; text-align: center; border-radius: 5px; margin-top: 10px;">
+                    SALDO FINAL: R$ {saldo:,.2f}
+                </div>
+            """, unsafe_allow_html=True)
+            st.markdown("<br>", unsafe_allow_html=True)
 
 elif st.session_state.view_mode == "Balancete":
     st.subheader("📑 Balancete de Verificação")
@@ -71,7 +87,6 @@ elif st.session_state.view_mode == "Balancete":
 elif st.session_state.view_mode == "Balanço":
     st.subheader("⚖️ Balanço Patrimonial")
     
-    # Lógica de soma (Ativo = Passivo + PL)
     ativo = df[df['grupo'].str.contains('Ativo', na=False)]['valor'].sum()
     passivo = df[df['grupo'].str.contains('Passivo', na=False)]['valor'].sum()
     pl = df[df['grupo'] == 'Patrimônio Líquido']['valor'].sum()
@@ -81,7 +96,6 @@ elif st.session_state.view_mode == "Balanço":
     m2.metric("Total Passivo", f"R$ {passivo:,.2f}")
     m3.metric("PL", f"R$ {pl:,.2f}")
     
-    # Verificação de Equilíbrio
     if abs(ativo - (passivo + pl)) < 0.01:
         st.success("✅ Balanço Patrimonial Equilibrado!")
     else:
