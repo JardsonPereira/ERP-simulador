@@ -1,149 +1,77 @@
 import streamlit as st
 import pandas as pd
-import sys
-import os
-
-# --- CONFIGURAÇÃO E AUTENTICAÇÃO ---
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from datetime import date
 from utils import get_supabase, check_auth, show_auth_sidebar
 
-st.set_page_config(page_title="Contabilidade", layout="wide")
-
+# 1. Configuração e Autenticação
 check_auth()
-supabase = get_supabase()
-show_auth_sidebar(supabase)
-
-user = st.session_state.get('user')
-if not user:
-    st.warning("Usuário não autenticado.")
+if "user" not in st.session_state or st.session_state.user is None:
+    st.warning("Por favor, faça login.")
     st.stop()
 
-user_id = getattr(user, 'id', None) or (user.get('id') if isinstance(user, dict) else None)
+supabase = get_supabase()
+user_id = st.session_state.user.id
 
-st.title("📚 Contabilidade por Grupos")
+st.title("⚖️ Contabilidade Patrimonial")
 
-# --- FUNÇÃO DE CLASSIFICAÇÃO ---
-def classificar_conta(grupo):
-    if not isinstance(grupo, str): return '8. Outros'
-    g = grupo.lower()
-    if 'ativo circulante' in g: return '1. Ativo Circulante'
-    if 'ativo não circulante' in g: return '2. Ativo Não Circulante'
-    if 'passivo circulante' in g: return '3. Passivo Circulante'
-    if 'passivo não circulante' in g: return '4. Passivo Não Circulante'
-    if 'patrimônio' in g or 'pl' in g: return '5. Patrimônio Líquido'
-    if 'receita' in g: return '6. Receitas'
-    if 'despesa' in g or 'custo' in g: return '7. Despesas'
-    if 'encargo' in g: return '7. Despesas' 
-    return '8. Outros'
+# Carregar Contas
+res_contas = supabase.table("contas").select("id, nome_conta, grupo").eq("user_id", user_id).execute()
+contas_df = pd.DataFrame(res_contas.data)
+lista_contas = ["-- Selecionar Conta --"] + (contas_df['nome_conta'].tolist() if not contas_df.empty else [])
 
-if user_id:
-    res_lanc = supabase.table("lancamentos").select("*").eq("user_id", user_id).execute()
-    res_contas = supabase.table("contas").select("*").eq("user_id", user_id).execute()
+# 2. Formulário de Partidas Dobradas
+with st.form("lancamento_duplo", clear_on_submit=True):
+    st.subheader("📝 Lançamento Contábil (Partida Dobrada)")
+    c1, c2 = st.columns(2)
+    
+    with c1:
+        conta_debito = st.selectbox("Conta de Débito (Origem/Aplicação)", lista_contas)
+    with c2:
+        conta_credito = st.selectbox("Conta de Crédito (Destino/Origem)", lista_contas)
+    
+    valor = st.number_input("Valor (R$)", min_value=0.01, format="%.2f")
+    data = st.date_input("Data", date.today())
+    justificativa = st.text_input("Histórico/Justificativa")
 
-    if res_lanc.data and res_contas.data:
-        df_l = pd.DataFrame(res_lanc.data)
-        df_c = pd.DataFrame(res_contas.data)
-        
-        df = df_l.merge(df_c, left_on='conta_id', right_on='id', suffixes=('_lanc', '_conta'))
-        df['grupo'] = df.get('grupo_lanc', df.get('grupo_conta', 'Outros'))
-        
-        df['data_lancamento'] = pd.to_datetime(df['data_lancamento'])
-        df['valor'] = pd.to_numeric(df['valor'], errors='coerce')
-        
-        st.markdown("---")
-        c1, c2 = st.columns(2)
-        d_inicio = c1.date_input("Data Início", value=df['data_lancamento'].min().date())
-        d_fim = c2.date_input("Data Fim", value=df['data_lancamento'].max().date())
-        
-        df_p = df[(df['data_lancamento'].dt.date >= d_inicio) & (df['data_lancamento'].dt.date <= d_fim)].copy()
-        df_p['Categoria'] = df_p['grupo'].apply(classificar_conta)
-
-        tab1, tab2, tab3 = st.tabs(["Razonetes (T)", "Balancete", "Balanço Patrimonial"])
-        
-        # --- TAB 1: RAZONETES ---
-        with tab1:
-            for cat in sorted(df_p['Categoria'].unique()):
-                st.subheader(f"📁 {cat}")
-                contas_cat = sorted(df_p[df_p['Categoria'] == cat]['nome_conta'].unique())
-                for i in range(0, len(contas_cat), 3):
-                    cols = st.columns(3)
-                    for j, col in enumerate(cols):
-                        if i + j < len(contas_cat):
-                            conta = contas_cat[i+j]
-                            with col:
-                                d_c = df_p[df_p['nome_conta'] == conta]
-                                t_deb = d_c[d_c['operacao'] == 'Débito']['valor'].sum()
-                                t_cre = d_c[d_c['operacao'] == 'Crédito']['valor'].sum()
-                                saldo = abs(t_deb - t_cre)
-                                tipo_saldo = "Devedor" if t_deb >= t_cre else "Credor"
-                                
-                                deb_list = "".join([f"<div style='border-bottom:1px solid #eee; margin-bottom:5px;'><small>R$ {r.valor:,.2f}</small><br><b style='font-size:0.8em;'>{r.justificativa}</b></div>" for _, r in d_c[d_c['operacao'] == 'Débito'].iterrows()])
-                                cre_list = "".join([f"<div style='border-bottom:1px solid #eee; margin-bottom:5px;'><small>R$ {r.valor:,.2f}</small><br><b style='font-size:0.8em;'>{r.justificativa}</b></div>" for _, r in d_c[d_c['operacao'] == 'Crédito'].iterrows()])
-                                
-                                st.markdown(f"""
-                                    <div style="border: 1px solid #ddd; padding: 10px; border-radius: 5px; background: #fafafa; margin-bottom:10px;">
-                                        <div style="text-align: center; font-weight: bold;">{conta}</div>
-                                        <hr style="margin:5px 0;">
-                                        <div style="display: flex;">
-                                            <div style="flex: 1; padding: 5px; border-right: 1px solid #ddd;"><div style="font-size:0.7em; color:green;">DÉBITO</div>{deb_list}</div>
-                                            <div style="flex: 1; padding: 5px; text-align: right;"><div style="font-size:0.7em; color:red;">CRÉDITO</div>{cre_list}</div>
-                                        </div>
-                                        <div style="text-align:center; margin-top:5px; font-weight:bold; font-size:0.9em;">Saldo {tipo_saldo}: R$ {saldo:,.2f}</div>
-                                    </div>
-                                """, unsafe_allow_html=True)
-
-        # --- TAB 2: BALANCETE (FORMATO CONTÁBIL) ---
-        with tab2:
-            st.subheader("Balancete de Verificação")
-            pivot = df_p.pivot_table(index='nome_conta', columns='operacao', values='valor', aggfunc='sum', fill_value=0)
-            if 'Débito' not in pivot.columns: pivot['Débito'] = 0
-            if 'Crédito' not in pivot.columns: pivot['Crédito'] = 0
+    if st.form_submit_button("Lançar Partida"):
+        if conta_debito == "-- Selecionar Conta --" or conta_credito == "-- Selecionar Conta --":
+            st.error("Selecione ambas as contas.")
+        else:
+            # Busca IDs
+            id_deb = contas_df[contas_df['nome_conta'] == conta_debito].iloc[0]['id']
+            id_cred = contas_df[contas_df['nome_conta'] == conta_credito].iloc[0]['id']
             
-            pivot['Saldo Devedor'] = pivot.apply(lambda x: x['Débito'] - x['Crédito'] if x['Débito'] > x['Crédito'] else 0, axis=1)
-            pivot['Saldo Credor'] = pivot.apply(lambda x: x['Crédito'] - x['Débito'] if x['Crédito'] > x['Débito'] else 0, axis=1)
+            # Insere Débito
+            supabase.table("lancamentos").insert({
+                "user_id": user_id, "conta_id": id_deb, "valor": valor, 
+                "operacao": "Débito", "data_lancamento": str(data), "justificativa": justificativa
+            }).execute()
             
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Total Débito", f"R$ {pivot['Débito'].sum():,.2f}")
-            col2.metric("Total Crédito", f"R$ {pivot['Crédito'].sum():,.2f}")
-            col3.metric("Dif. Saldo", f"R$ {(pivot['Saldo Devedor'].sum() - pivot['Saldo Credor'].sum()):,.2f}")
+            # Insere Crédito
+            supabase.table("lancamentos").insert({
+                "user_id": user_id, "conta_id": id_cred, "valor": -valor, 
+                "operacao": "Crédito", "data_lancamento": str(data), "justificativa": justificativa
+            }).execute()
             
-            display_cols = ['Débito', 'Crédito', 'Saldo Devedor', 'Saldo Credor']
-            # CORREÇÃO AQUI: usando .map() no lugar de .applymap()
-            pivot_display = pivot[display_cols].map(lambda x: f"R$ {x:,.2f}")
-            st.dataframe(pivot_display, use_container_width=True)
+            st.success("Lançamento realizado com sucesso!")
 
-        # --- TAB 3: BALANÇO PATRIMONIAL ---
-        with tab3:
-            st.subheader("Balanço Patrimonial (Saldos das Contas)")
-            
-            df_contas = df_p.groupby(['nome_conta', 'Categoria', 'operacao'])['valor'].sum().unstack(fill_value=0)
-            df_contas['Saldo_Net'] = df_contas.get('Débito', 0) - df_contas.get('Crédito', 0)
+# 3. Balancete de Verificação
+st.markdown("---")
+st.subheader("📊 Balancete de Verificação")
 
-            def calcular_valor_balanco(row):
-                cat = row.name[1] 
-                s = row['Saldo_Net']
-                if 'Ativo' in cat: return s
-                if 'Passivo' in cat or 'Patrimônio' in cat: return -s 
-                return 0
-
-            df_contas['Valor_Balanço'] = df_contas.apply(calcular_valor_balanco, axis=1)
-            df_balanco = df_contas.reset_index().groupby('Categoria')['Valor_Balanço'].sum()
-            
-            ativo = df_balanco[df_balanco.index.str.contains('Ativo')].sum()
-            passivo_pl = df_balanco[df_balanco.index.str.contains('Passivo|Patrimônio')].sum()
-            
-            c_left, c_right = st.columns(2)
-            with c_left:
-                st.metric("Total Ativo", f"R$ {ativo:,.2f}")
-                st.dataframe(df_balanco[df_balanco.index.str.contains('Ativo')], use_container_width=True)
-            with c_right:
-                st.metric("Total Passivo + PL", f"R$ {passivo_pl:,.2f}")
-                st.dataframe(df_balanco[df_balanco.index.str.contains('Passivo|Patrimônio')], use_container_width=True)
-            
-            if abs(ativo - passivo_pl) < 0.01:
-                st.success("✅ Balanço Equilibrado!")
-            else:
-                st.error(f"⚠️ Balanço Desequilibrado: Diferença de R$ {(ativo - passivo_pl):,.2f}")
-
+res_lanc = supabase.table("lancamentos").select("conta_id, valor").eq("user_id", user_id).execute()
+if res_lanc.data:
+    df_lanc = pd.DataFrame(res_lanc.data)
+    df_lanc['nome_conta'] = df_lanc['conta_id'].map(contas_df.set_index('id')['nome_conta'])
+    balancete = df_lanc.groupby('nome_conta')['valor'].sum().reset_index()
+    
+    st.dataframe(balancete, use_container_width=True)
+    
+    total = balancete['valor'].sum()
+    if abs(total) < 0.01:
+        st.success("Balanço Fechado: A soma dos débitos e créditos é zero.")
     else:
-        st.info("Nenhum lançamento encontrado no período.")
+        st.error(f"Balanço Desequilibrado! Diferença: R$ {total:.2f}")
+
+# Exemplo de fluxo contábil visual
+st.markdown("---")
